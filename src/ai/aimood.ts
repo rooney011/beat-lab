@@ -131,22 +131,25 @@ export class AiMood {
     if (this.failed || !this.enabled) return null;
     if (this.worker) return this.worker;
     try {
-      const w = new Worker('/mood-worker.js');
+      // Bundled by Vite to /workers/, which gets its own CSP (with 'unsafe-eval') so the page
+      // policy can stay strict. Classic worker: it uses importScripts for the vendored libs.
+      const w = new Worker(new URL('./mood-worker.js', import.meta.url), { type: 'classic' });
       w.onmessage = (e) => this.onMessage(e.data as WorkerMsg);
-      w.onerror = () => this.fail();
+      w.onerror = () => this.fail('worker error (e.g. CSP blocked Essentia.js)');
       setTimeout(() => {
-        if (!this.ready) this.fail();
+        if (!this.ready) this.fail('model did not become ready in time');
       }, READY_TIMEOUT_MS);
       this.worker = w;
       return w;
     } catch {
-      this.fail();
+      this.fail('could not start the model worker');
       return null;
     }
   }
 
-  /** Silent fallback: drop the worker so the app keeps the rule-based read. */
-  private fail(): void {
+  /** Silent fallback to the rule-based read, logged once. No user-facing error. */
+  private fail(reason: string): void {
+    if (!this.failed) console.warn(`[beat-lab] AI mood off, using the quick read: ${reason}`);
     this.failed = true;
     this.stop();
     this.worker?.terminate();
@@ -160,7 +163,7 @@ export class AiMood {
     }
     if (d.type === 'error') {
       // A model that won't run at all is a load failure; drop to the quick read.
-      if (!this.ready || this.pending.size === 0) this.fail();
+      if (!this.ready || this.pending.size === 0) this.fail(d.message ?? 'inference failed');
       if (d.reqId !== undefined) this.pending.delete(d.reqId);
       return;
     }

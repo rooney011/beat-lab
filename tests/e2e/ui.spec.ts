@@ -146,12 +146,21 @@ test('phone: the Tab source is shown but unavailable and opens the help card', a
   await expect(page.getByRole('alertdialog')).toContainText("another tab's audio");
 });
 
+test("the page CSP has no eval; the model's permission is worker-scoped only", async ({ page }) => {
+  const resp = await page.goto('/?debug');
+  const pageCsp = resp?.headers()['content-security-policy'] ?? '';
+  expect(pageCsp).toContain("script-src 'self'");
+  // Neither 'unsafe-eval' nor 'wasm-unsafe-eval' may be on the page itself.
+  expect(pageCsp).not.toContain('unsafe-eval');
+});
+
 test('on-device model: the AI mood read takes over for a file', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'the model is heavy; covered on desktop');
   await page.goto('/?debug');
   await page.locator('#file').setInputFiles(fixture('audio/hype-128.flac'));
   await expect.poll(() => read(page, 'a.state.screen')).toBe('live');
-  // The quick rule-based read lands first; the on-device model then takes over (allow for load + inference).
+  // The quick rule-based read lands first; the model (running under the /workers/ CSP, which grants
+  // eval) then takes over — proof the worker-scoped exception works while the page stays strict.
   await expect(page.locator('#npChips')).toContainText('Mood · AI', { timeout: 60_000 });
   await expect.poll(() => read(page, 'a.state.aiActive')).toBe(true);
   await expect.poll(() => read(page, 'a.aiRead ? a.aiRead.inferenceMs >= 0 : false')).toBe(true);

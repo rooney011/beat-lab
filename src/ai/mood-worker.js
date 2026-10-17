@@ -14,7 +14,7 @@
 'use strict';
 
 var BASE = '/models';
-importScripts(
+self.importScripts(
   BASE + '/lib/tf.min.3.5.0.js',
   BASE + '/lib/tf-backend-wasm-3.5.0.js',
   BASE + '/lib/essentia.js-model.umd.js',
@@ -114,7 +114,9 @@ async function infer(channels, sampleRate) {
   return { probs: probs, inferenceMs: Date.now() - t0 };
 }
 
-onmessage = function (e) {
+// Vite wraps this worker in a strict-mode IIFE, so bind onmessage / postMessage on `self`
+// explicitly rather than as bare globals.
+self.onmessage = function (e) {
   var d = e.data || {};
   if (d.type !== 'pcm') return;
   var channels = (d.channels || []).map(function (c) {
@@ -122,12 +124,12 @@ onmessage = function (e) {
   });
   infer(channels, d.sampleRate).then(
     function (r) {
-      postMessage({ type: 'result', reqId: d.reqId, probs: r.probs, inferenceMs: r.inferenceMs });
+      self.postMessage({ type: 'result', reqId: d.reqId, probs: r.probs, inferenceMs: r.inferenceMs });
     },
     function (err) {
-      postMessage({ type: 'error', reqId: d.reqId, message: String((err && err.message) || err) });
+      self.postMessage({ type: 'error', reqId: d.reqId, message: String((err && err.message) || err) });
     },
   );
 };
 
-postMessage({ type: 'ready' });
+self.postMessage({ type: 'ready' });

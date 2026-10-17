@@ -1,4 +1,3 @@
-import { DemoSynth, sectionOf } from './audio/demo-synth';
 import { AudioEngine } from './audio/engine';
 import { FileSource, LiveSource, LiveSourceError, type LiveKind } from './audio/sources';
 import { FeatureExtractor } from './analysis/features';
@@ -8,7 +7,7 @@ import { SyncDelay, autoDelay, MAX_DELAY_MS } from './analysis/sync';
 import { DIMS } from './config/dims';
 import { MOODS, moodLook } from './config/moods';
 import { LyricsCaption } from './lyrics/caption';
-import { demoLyrics, parseLRC, type LyricLine } from './lyrics/lrc';
+import { parseLRC, type LyricLine } from './lyrics/lrc';
 import { findSyncedLyrics } from './lyrics/lrclib';
 import { CoverArt } from './meta/cover';
 import { guessFromFilename, readFileTags, type Tags } from './meta/tags';
@@ -61,7 +60,6 @@ export function initialState(): AppState {
     title: '',
     timeL: '',
     timeR: '',
-    section: '',
     scrub: 0,
     scrubMax: 1,
     autoHide: true,
@@ -111,7 +109,6 @@ export class App {
   frameMs = 16;
 
   private readonly strip: BandStrip;
-  private synth: DemoSynth | null = null;
   private file: FileSource | null = null;
   private live: LiveSource | null = null;
   private lyricsAbort: AbortController | null = null;
@@ -256,7 +253,6 @@ export class App {
   }
 
   private stopSources(): void {
-    this.synth?.stop();
     this.file?.dispose();
     this.file = null;
     this.live?.dispose();
@@ -277,27 +273,6 @@ export class App {
     if (this.state.auto || this.state.screen === 'cover') this.director.reset(0, t);
     if (!fromCover && this.state.screen === 'cover') this.set({ screen: 'live' });
     this.lastInput = t;
-  }
-
-  startDemo(fromCover = false): void {
-    const ctx = this.ensureAudio();
-    if (!ctx || !this.audio.input) return;
-    if (ctx.state === 'suspended') void ctx.resume();
-    this.stopSources();
-    this.synth ??= new DemoSynth(ctx, this.audio.input);
-    this.synth.start();
-    this.audio.setMonitor(true);
-    this.set({ source: 'demo', playing: true, card: null, requesting: null });
-    this.beginRun('demo', fromCover);
-    this.setMeta({
-      title: 'Night Shift Loop',
-      artist: 'BEAT LAB house band',
-      album: 'Demo beat · synthesised live',
-      year: '2026',
-      fmt: 'SYNTH',
-    });
-    this.setLyrics(demoLyrics(), 'Demo lyrics');
-    if (fromCover) this.leaveCover();
   }
 
   /** Cover → stage transition: sparks burst, cover slides away, stage starts at Inkfall. */
@@ -409,13 +384,9 @@ export class App {
 
   pickSource(id: SourceId): void {
     this.poke();
-    if (id === 'demo') this.startDemo(this.state.screen === 'cover');
-    else if (id === 'file') this.openFilePicker();
+    if (id === 'file') this.openFilePicker();
     else if (id === 'mic') this.set({ card: this.state.micDenied ? 'err-mic-denied' : 'perm-mic' });
-    else
-      this.set({
-        card: LiveSource.tabSupported() && this.state.layout !== 'mobile' ? 'perm-tab' : 'err-tab-unsupported',
-      });
+    else this.set({ card: LiveSource.tabSupported() ? 'perm-tab' : 'err-tab-unsupported' });
   }
 
   /** Called from the permission card's button (a user gesture, so the browser prompt can open). */
@@ -478,7 +449,7 @@ export class App {
     const s = this.state;
     this.poke();
     if (!s.source) {
-      this.startDemo(s.screen === 'cover');
+      this.openFilePicker();
       return;
     }
     const ctx = this.audio.ctx;
@@ -495,12 +466,10 @@ export class App {
     }
     if (!ctx) return;
     if (s.playing) {
-      this.synth?.pause();
       void ctx.suspend();
       this.set({ playing: false });
     } else {
       void ctx.resume();
-      if (s.source === 'demo') this.synth?.resume();
       this.set({ playing: true });
     }
   }
@@ -575,7 +544,6 @@ export class App {
   private songTime(): number {
     const s = this.state;
     if (s.source === 'file' && this.file) return this.file.currentTime;
-    if (s.source === 'demo' && this.synth?.active) return this.synth.songTime();
     return -1;
   }
 
@@ -666,7 +634,6 @@ export class App {
       live: isLive,
       playing: s.playing,
       hasSource: s.source !== null,
-      demoHint: s.source === 'demo' && this.synth ? this.synth.hint : null,
     });
     const lf = live.f;
     if (s.playing && isLive) {
@@ -743,7 +710,6 @@ export class App {
   }
 
   private giantWord(s: AppState): string {
-    if (s.source === 'demo' && s.section) return s.section;
     if (s.source && s.mood) return MOODS[s.mood].label;
     return DIMS[this.director.now].name.toUpperCase();
   }
@@ -777,7 +743,6 @@ export class App {
     this.uiT = t;
     const s = this.state;
     const up: Partial<AppState> = {};
-    let section = '';
     let timeL = '';
     let timeR = '';
     if (s.source === 'file' && this.file) {
@@ -787,16 +752,11 @@ export class App {
       timeR = '−' + formatTime(Math.max(0, d - cur));
       up.scrub = Math.floor(cur);
       up.scrubMax = Math.max(1, Math.floor(d));
-    } else if (s.source === 'demo' && this.synth?.active) {
-      const bar = Math.floor(this.synth.audibleStep() / 16);
-      section = sectionOf(bar).toUpperCase();
-      timeL = 'BAR ' + String(bar + 1).padStart(2, '0') + ' / 32';
-      timeR = section;
     } else if (s.source === 'mic' || s.source === 'tab') {
       timeL = 'LIVE';
       timeR = s.playing ? Math.max(-90, Math.round(f.db)) + ' DB' : 'PAUSED';
     }
-    Object.assign(up, { timeL, timeR, section });
+    Object.assign(up, { timeL, timeR });
     let status: AppState['status'] = 'ready';
     if (s.source) status = !s.playing ? 'paused' : f.silent ? 'no-signal' : 'listening';
     else if (s.micDenied) status = 'blocked';
@@ -823,10 +783,7 @@ export class App {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (!s.shortcuts || tag === 'INPUT' || tag === 'TEXTAREA' || s.card) return;
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    if (s.screen !== 'live') {
-      if (key === 'd') this.startDemo(true);
-      return;
-    }
+    if (s.screen !== 'live') return;
     switch (key) {
       case ' ':
         if (tag === 'BUTTON') return;
@@ -861,9 +818,6 @@ export class App {
         break;
       case 's':
         this.set({ drawer: !s.drawer });
-        break;
-      case 'd':
-        this.startDemo();
         break;
       case 'o':
         this.openFilePicker();

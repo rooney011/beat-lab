@@ -2,7 +2,7 @@ import { PAPER } from '../../config/dims';
 import type { DrawContext } from '../context';
 import { FONT_DISPLAY } from '../fonts';
 
-/** The giant outlined word behind everything: the demo's section, the song's mood, or the dimension name. */
+/** The giant outlined word behind everything: the song's mood, or the dimension name. */
 export class GiantWord {
   private cache = { text: '', size: 0, W: 0, t: -9999 };
 

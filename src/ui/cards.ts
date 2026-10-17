@@ -17,7 +17,6 @@ interface CardDef {
   actions: CardAction[];
 }
 
-const useDemo: CardAction = { label: 'Play the demo beat', run: (app) => app.startDemo(app.state.screen === 'cover') };
 const openFile = (label: string, primary = false): CardAction => ({
   label,
   primary,
@@ -35,7 +34,7 @@ export const CARDS: Record<CardId, CardDef> = {
     fine: 'Audio is analysed on this device and never recorded.',
     actions: [
       { label: 'Allow mic', primary: true, run: (app) => void app.startLive('mic') },
-      { ...useDemo, label: 'Use demo beat' },
+      openFile('Open a file'),
     ],
   },
   'perm-tab': {
@@ -45,7 +44,7 @@ export const CARDS: Record<CardId, CardDef> = {
     fine: 'Audio is analysed on this device and never recorded.',
     actions: [
       { label: 'Choose tab', primary: true, run: (app) => void app.startLive('tab') },
-      { ...useDemo, label: 'Use demo beat' },
+      openFile('Open a file'),
     ],
   },
   'err-mic-denied': {
@@ -55,7 +54,7 @@ export const CARDS: Record<CardId, CardDef> = {
       'Your browser is blocking the mic for this site. Open the site settings next to the address bar, allow Microphone, then retry.',
     ],
     error: true,
-    actions: [{ label: 'Retry', primary: true, run: (app) => void app.startLive('mic') }, useDemo],
+    actions: [{ label: 'Retry', primary: true, run: (app) => void app.startLive('mic') }, openFile('Open a file')],
   },
   'err-mic-missing': {
     kick: 'Error · no-mic',
@@ -76,14 +75,14 @@ export const CARDS: Record<CardId, CardDef> = {
     title: "Tab audio isn't available here",
     body: ['Use Chrome or Edge on a computer, or play a file.'],
     error: true,
-    actions: [openFile('Open a file', true), useDemo],
+    actions: [openFile('Open a file', true)],
   },
   'err-file': {
     kick: 'Error · file-unsupported',
     title: "Can't play this file",
     body: ['Try MP3, M4A, WAV, OGG or FLAC.'],
     error: true,
-    actions: [openFile('Choose another', true), useDemo],
+    actions: [openFile('Choose another', true)],
   },
   keys: {
     kick: 'Keyboard',
@@ -101,7 +100,7 @@ const SHORTCUTS: [string, string][] = [
   [',  .', 'Visual sync delay −20 / +20 ms'],
   ['← →', 'Seek 5 s (files)'],
   ['L / C', 'Lyrics / ink crew on or off'],
-  ['D O M T', 'Demo beat, open file, mic, tab'],
+  ['O M T', 'Open file, mic, tab'],
   ['H', 'Clean stage'],
   ['F', 'Fullscreen'],
   ['S', 'Settings'],

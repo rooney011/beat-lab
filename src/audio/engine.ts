@@ -3,7 +3,7 @@
  *
  *   sources ──► input ──┬──► analyser (bytes, smoothing 0.5) ──┐
  *                       ├──► analyser (float dB, no smoothing) ─┴──► mute ──► destination
- *                       └──► monitor ──► destination   (1 for file/demo, 0 for mic/tab)
+ *                       └──► monitor ──► destination   (1 for file, 0 for mic/tab)
  *
  * Mic and tab audio must never be routed to the speakers (feedback, double audio), so
  * playback goes through a separate monitor gain instead of through the analysers.
@@ -61,7 +61,7 @@ export class AudioEngine {
     }
   }
 
-  /** Hear the analysed signal (file, demo) or keep it silent (mic, tab). */
+  /** Hear the analysed signal (file) or keep it silent (mic, tab). */
   setMonitor(on: boolean): void {
     if (!this.monitor || !this.ctx) return;
     this.monitor.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.01);

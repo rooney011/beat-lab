@@ -12,7 +12,7 @@ BEAT LAB is an audio-reactive visualizer for the browser. It listens to a song, 
 
 ## Features
 
-- **Four inputs.** A demo beat synthesised live in Web Audio, your own files (MP3, M4A, WAV, OGG, FLAC), the microphone, or a shared browser tab (Chrome and Edge on desktop).
+- **Three inputs.** Your own files (MP3, M4A, WAV, OGG, FLAC), the microphone, or a shared browser tab (Chrome and Edge on desktop).
 - **Beat detection** tuned for kicks: spectral flux over 20–280 Hz with an adaptive threshold, gated by kick-band share and a 2-frame power rise. Snares and hi-hats drive their own effects.
 - **Four "dimensions"** that step up with the song's energy (Inkfall → Riso Heat → Pressline → Static Bloom). Each step adds layers rather than turning the same ones up. Changes land on a strong beat.
 - **Mood reading** without a model: tempo, onset density and punch give arousal; spectral tilt gives valence. The mood picks the background, the dancers' style and how lyrics animate.
@@ -26,7 +26,7 @@ BEAT LAB is an audio-reactive visualizer for the browser. It listens to a song, 
 
 ```mermaid
 flowchart LR
-  S["Sources<br/>demo · file · mic · tab"] --> E["AudioEngine<br/>input → 2 AnalyserNodes"]
+  S["Sources<br/>file · mic · tab"] --> E["AudioEngine<br/>input → 2 AnalyserNodes"]
   E --> F["FeatureExtractor<br/>beats · pulse · bands · bars · string"]
   F --> M["MoodReader<br/>tempo · arousal · valence"]
   F --> L["DimensionDirector<br/>auto ladder"]
@@ -49,7 +49,7 @@ TypeScript (strict), Vite, Canvas 2D and the Web Audio API. No runtime dependenc
 ```
 src/
   app.ts               controller: sources, frame loop, actions
-  audio/               AudioEngine, demo synth, file / mic / tab sources
+  audio/               AudioEngine, file / mic / tab sources
   analysis/            features, mood, sync delay, dimension ladder
   lyrics/              LRC parser, LRCLIB client, caption renderer
   meta/                tag parser (ID3, MP4, FLAC), cover art
@@ -95,7 +95,7 @@ Any other static host works too: run `npm run build` and publish `dist/`. If the
 
 |                          | Chrome / Edge (desktop) | Firefox | Safari  | Mobile browsers |
 | ------------------------ | ----------------------- | ------- | ------- | --------------- |
-| Demo beat, files, mic    | yes                     | yes     | yes     | yes             |
+| Files, mic               | yes                     | yes     | yes     | yes             |
 | Tab audio                | yes                     | no      | no      | no              |
 | Auto sync-delay estimate | yes                     | yes     | partial | varies          |
 

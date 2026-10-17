@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { demoLyrics, parseLRC, wordTimes } from '../../src/lyrics/lrc';
+import { parseLRC, wordTimes } from '../../src/lyrics/lrc';
 
 describe('parseLRC', () => {
   it('reads timed lines, sorts them and gives each an end time', () => {
@@ -52,14 +52,5 @@ describe('wordTimes', () => {
     for (const x of t) expect(Math.abs(x / grid - Math.round(x / grid))).toBeLessThan(1e-9);
     expect(t).toEqual([...t].sort((a, b) => a - b));
     expect(t[t.length - 1]).toBeLessThanOrEqual(l.t + (l.end - l.t) * 0.7);
-  });
-});
-
-describe('demoLyrics', () => {
-  it('is in order and every word is timed', () => {
-    const L = demoLyrics();
-    expect(L.length).toBe(15);
-    for (let i = 1; i < L.length; i++) expect(L[i].t).toBeGreaterThan(L[i - 1].t);
-    for (const l of L) for (const w of l.words) expect(w.t).not.toBeNull();
   });
 });

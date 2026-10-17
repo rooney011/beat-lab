@@ -13,7 +13,7 @@ const STATUS_WORDS: Record<AppState['status'], string> = {
   'no-signal': 'No signal',
   blocked: 'Mic blocked',
 };
-const SOURCE_WORDS: Record<SourceId, string> = { demo: 'Demo beat', file: 'File', mic: 'Mic', tab: 'Tab' };
+const SOURCE_WORDS: Record<SourceId, string> = { file: 'File', mic: 'Mic', tab: 'Tab' };
 const STATUS_CLASS: Partial<Record<AppState['status'], string>> = {
   listening: 'is-listening',
   'no-signal': 'is-nosignal',
@@ -23,7 +23,7 @@ const STATUS_CLASS: Partial<Record<AppState['status'], string>> = {
 const FX_ITEMS: [keyof FxFlags, string, string][] = [
   ['cuts', 'Panel cuts', 'Strong beats re-cut the stage into comic panels.'],
   ['plates', 'Plate misregistration', 'Beats knock the inks out of line.'],
-  ['lyrics', 'Lyrics', 'Synced caption boxes from the demo, LRCLIB or your .lrc file.'],
+  ['lyrics', 'Lyrics', 'Synced caption boxes from LRCLIB or your .lrc file.'],
   ['dancers', 'Ink crew', 'Small figures that dance to the beat and the mood.'],
   ['letters', 'Sound lettering', 'Comic sound words on the biggest hits.'],
   ['stamps', 'Impact stamps', 'Shapes, ink splats and streaks on hits.'],
@@ -146,7 +146,6 @@ export class Shell {
   private bind(): void {
     const app = this.app;
     const on = (id: string, fn: () => void): void => byId(id).addEventListener('click', fn);
-    on('coverDemo', () => app.startDemo(true));
     on('coverFile', () => app.openFilePicker());
     on('coverMic', () => app.pickSource('mic'));
     on('coverTab', () => app.pickSource('tab'));
@@ -261,31 +260,14 @@ export class Shell {
       b.hidden = id === 'tab' && (s.layout === 'mobile' || !this.tabOk);
       const label = b.querySelector('span');
       if (label)
-        text(
-          label,
-          s.requesting === id
-            ? 'Waiting…'
-            : id === 'demo'
-              ? 'Demo'
-              : id === 'file'
-                ? 'File'
-                : id === 'mic'
-                  ? 'Mic'
-                  : 'Tab',
-        );
+        text(label, s.requesting === id ? 'Waiting…' : id === 'file' ? 'File' : id === 'mic' ? 'Mic' : 'Tab');
     }
 
     // Now playing
     const meta = s.meta;
     text(
       byId('npKick'),
-      s.source === 'demo'
-        ? 'Now printing · demo'
-        : s.source === 'file'
-          ? `Now printing · ${meta.fmt || 'file'}`
-          : s.source
-            ? 'Live input'
-            : 'No source yet',
+      s.source === 'file' ? `Now printing · ${meta.fmt || 'file'}` : s.source ? 'Live input' : 'No source yet',
     );
     const title = byId('npTitle');
     text(title, s.title || 'No track yet');
@@ -438,7 +420,7 @@ export class Shell {
       [s.mood ? MOODS[s.mood].label : s.source ? 'Reading mood' : 'No mood yet', s.mood ? 'is-mood' : ''],
     ];
     if (s.bpm) chips.push([`${s.bpm} BPM`, '']);
-    if (s.source === 'demo' || s.source === 'file')
+    if (s.source === 'file')
       chips.push([s.lyricSrc ? `Lyrics · ${s.lyricSrc}` : 'No lyrics', s.lyricSrc ? 'is-ink' : '']);
     if (s.meta.mb) chips.push([`${s.meta.fmt} · ${s.meta.mb} MB`, '']);
     byId('npChips').replaceChildren(...chips.map(([label, cls]) => h('span', { class: 'chip-s ' + cls }, label)));

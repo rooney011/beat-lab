@@ -1,5 +1,3 @@
-import { STEP_SECONDS } from '../audio/demo-synth';
-
 export interface LyricWord {
   w: string;
   /** Word start in seconds, when the file gives one (enhanced LRC). */
@@ -112,33 +110,4 @@ export function wordTimes(line: LyricLine, bpm: number): number[] {
   }
   for (let i = 1; i < n; i++) if (out[i] < out[i - 1]) out[i] = out[i - 1];
   return out;
-}
-
-/** Original lyrics for the demo beat, timed to its bars. */
-export function demoLyrics(): LyricLine[] {
-  const spb = STEP_SECONDS;
-  const L: [number, number, string][] = [
-    [0, 0, 'Midnight on the press floor'],
-    [4, 0, 'ink still wet on every street'],
-    [8, 0, 'Count it in, one, two'],
-    [10, 0, 'every block a panel'],
-    [12, 0, 'every step a beat'],
-    [14, 8, 'hold your breath'],
-    [16, 0, 'THE CITY PRINTS IN COLOR'],
-    [18, 0, 'misfire, misfire'],
-    [20, 0, "we don't line up, we light up"],
-    [22, 0, 'off the grid and out of frame'],
-    [24, 0, 'LOUDER'],
-    [25, 0, 'BRIGHTER'],
-    [26, 0, 'OUT OF REGISTER!'],
-    [28, 0, 'page turns, quiet now'],
-    [30, 0, 'same city, next issue'],
-  ];
-  return finishLines(
-    L.map(([bar, step, text]) => {
-      const t = (bar * 16 + step) * spb;
-      const gap = bar >= 24 && bar < 28 ? 4 : 2;
-      return { t, end: 0, text, words: text.split(' ').map((w, i) => ({ w, t: t + i * gap * spb })) };
-    }),
-  );
 }

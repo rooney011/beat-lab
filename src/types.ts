@@ -1,4 +1,4 @@
-export type SourceId = 'demo' | 'file' | 'mic' | 'tab';
+export type SourceId = 'file' | 'mic' | 'tab';
 export type MoodId = 'hype' | 'grit' | 'dreamy' | 'brooding';
 export type Layout = 'desktop' | 'tablet' | 'mobile';
 export type BgStyle = 'rays' | 'chevrons' | 'stripes' | 'rings' | 'grid';
@@ -107,7 +107,6 @@ export interface AppState {
   title: string;
   timeL: string;
   timeR: string;
-  section: string;
   scrub: number;
   scrubMax: number;
   autoHide: boolean;

@@ -30,23 +30,36 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test('cover → demo beat → live stage, with no errors', async ({ page }) => {
+test('cover → open a file → live stage, with no errors', async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto('/?debug');
   await expect(page.locator('#coverTitle')).toBeVisible();
-  await page.getByRole('button', { name: 'Play the demo beat' }).click();
+  await page.locator('#file').setInputFiles(fixture('audio/hype-128.flac'));
   await expect.poll(() => read(page, 'a.state.screen')).toBe('live');
   await expect(page.locator('#cover')).toBeHidden();
-  await expect(page.locator('#npTitle')).toHaveText('Night Shift Loop');
+  await expect(page.locator('#npTitle')).toHaveText('hype-128');
   await expect.poll(() => read(page, 'a.stats.beats'), { timeout: 20_000 }).toBeGreaterThan(4);
-  await expect(page.locator('#npChips')).toContainText('Lyrics · Demo lyrics');
+  await expect(page.locator('#npChips')).toContainText('Lyrics · LRCLIB');
   expect(errors).toEqual([]);
+});
+
+test('the cover primary button and Play with no source open the file picker', async ({ page }) => {
+  await page.goto('/?debug');
+  const primary = page.getByRole('button', { name: 'Open a file' });
+  await expect(primary).toBeVisible();
+  const picker = page.waitForEvent('filechooser');
+  await primary.click();
+  expect(await picker).toBeTruthy();
+  // With no source, togglePlay (Space / the play button) falls back to the picker too.
+  const picker2 = page.waitForEvent('filechooser');
+  await read(page, 'a.togglePlay()');
+  expect(await picker2).toBeTruthy();
 });
 
 test('keyboard: dimensions, settings, shortcut sheet', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'keyboard flow is desktop-only');
   await page.goto('/?debug');
-  await page.getByRole('button', { name: 'Play the demo beat' }).click();
+  await page.locator('#file').setInputFiles(fixture('audio/hype-128.flac'));
   await expect.poll(() => read(page, 'a.state.screen')).toBe('live');
   await page.keyboard.press('4');
   await expect.poll(() => read(page, 'a.state.dim')).toBe(3);
@@ -95,7 +108,7 @@ test('a song dropped with its .lrc uses the file, not the lookup', async ({ page
 
 test('settings survive a reload', async ({ page }) => {
   await page.goto('/?debug');
-  await page.getByRole('button', { name: 'Play the demo beat' }).click();
+  await page.locator('#file').setInputFiles(fixture('audio/hype-128.flac'));
   await expect.poll(() => read(page, 'a.state.screen')).toBe('live');
   await page.locator('#btnCalm').click();
   await page.locator('#btnCrew').click();

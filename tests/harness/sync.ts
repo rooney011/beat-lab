@@ -58,7 +58,7 @@ async function probe(url: string, opts: ProbeOptions = {}): Promise<ProbeRow[]> 
       const dt = Math.max(0.001, tt - last);
       last = tt;
       const T = tt * 1000;
-      const a = features.update(T, dt, { live: true, playing: true, hasSource: true, demoHint: null });
+      const a = features.update(T, dt, { live: true, playing: true, hasSource: true });
       const d = mood.observe(a.f, dt, T, features.spectrum);
       if (d) bpm = d.bpm;
       crew.updateClock(dt, T, a.f, { playing: true, live: true, clockBpm: mood.profile?.clockBpm ?? 0, bpm });

@@ -1,0 +1,897 @@
+import { DemoSynth, sectionOf } from './audio/demo-synth';
+import { AudioEngine } from './audio/engine';
+import { FileSource, LiveSource, LiveSourceError, type LiveKind } from './audio/sources';
+import { FeatureExtractor } from './analysis/features';
+import { DimensionDirector } from './analysis/ladder';
+import { MoodReader } from './analysis/mood';
+import { SyncDelay, autoDelay, MAX_DELAY_MS } from './analysis/sync';
+import { DIMS } from './config/dims';
+import { MOODS, moodLook } from './config/moods';
+import { LyricsCaption } from './lyrics/caption';
+import { demoLyrics, parseLRC, type LyricLine } from './lyrics/lrc';
+import { findSyncedLyrics } from './lyrics/lrclib';
+import { CoverArt } from './meta/cover';
+import { guessFromFilename, readFileTags, type Tags } from './meta/tags';
+import { loadCanvasFonts } from './render/fonts';
+import { Stage } from './render/stage';
+import { BandStrip } from './render/strip';
+import { DEFAULT_FX, loadSettings, sanitize, saveSettings, settingsChanged } from './settings';
+import { Store } from './store';
+import type {
+  Analysis,
+  AppState,
+  CardId,
+  Features,
+  FxFlags,
+  Layout,
+  MotionPref,
+  Quality,
+  SourceId,
+  TrackMeta,
+} from './types';
+import { formatTime } from './util/math';
+
+export function initialState(): AppState {
+  return {
+    screen: 'cover',
+    leaving: false,
+    source: null,
+    playing: false,
+    requesting: null,
+    micDenied: false,
+    card: null,
+    drawer: false,
+    hud: false,
+    dim: 2,
+    auto: true,
+    queued: -1,
+    dose: 70,
+    toast: null,
+    motion: 'system',
+    reduce: false,
+    strict: false,
+    fx: { ...DEFAULT_FX },
+    mood: null,
+    bpm: 0,
+    lyricSrc: '',
+    lyricsOnline: true,
+    syncMs: null,
+    meta: {},
+    hasArt: false,
+    title: '',
+    timeL: '',
+    timeR: '',
+    section: '',
+    scrub: 0,
+    scrubMax: 1,
+    autoHide: true,
+    shortcuts: true,
+    quality: 'auto',
+    idle: false,
+    clean: false,
+    layout: 'desktop',
+    status: 'ready',
+    flashes: 0,
+    clamps: 0,
+    scale: 1,
+    suspended: false,
+    dragging: false,
+    ...sanitize(loadSettings()),
+  };
+}
+
+export interface AppElements {
+  root: HTMLElement;
+  stage: HTMLCanvasElement;
+  strip: HTMLCanvasElement;
+  art: HTMLCanvasElement;
+  fileInput: HTMLInputElement;
+}
+
+/**
+ * The controller: owns the audio graph, the analysis pipeline and the renderer, runs the
+ * animation loop, and exposes the actions the UI calls.
+ *
+ * Per frame: features (live) → mood + dimension ladder (live) → sync delay → events + render (delayed).
+ */
+export class App {
+  readonly store = new Store<AppState>(initialState());
+  readonly audio = new AudioEngine();
+  readonly features = new FeatureExtractor();
+  readonly mood = new MoodReader();
+  readonly sync = new SyncDelay();
+  readonly director: DimensionDirector;
+  readonly stage: Stage;
+  readonly cover = new CoverArt();
+  readonly lyrics = new LyricsCaption();
+  readonly stats = { beats: 0, strong: 0, snares: 0, intensity: 0 };
+  /** Called every frame with what the viewer sees (for DOM meters). */
+  onFrame: ((a: Analysis) => void) | null = null;
+  /** Average frame time in ms. */
+  frameMs = 16;
+
+  private readonly strip: BandStrip;
+  private synth: DemoSynth | null = null;
+  private file: FileSource | null = null;
+  private live: LiveSource | null = null;
+  private lyricsAbort: AbortController | null = null;
+  private pendingLrc: File | null = null;
+  private songKey = '';
+  private sysReduce = false;
+  private last = 0;
+  private raf = 0;
+  private alive = false;
+  private uiT = 0;
+  private lastInput = 0;
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private q = 1;
+  private perfT = 0;
+  private goodFor = 0;
+  private lowered = false;
+  private errLogged = false;
+  private resizeObs: ResizeObserver | null = null;
+
+  constructor(private readonly el: AppElements) {
+    this.stage = new Stage(el.stage);
+    this.strip = new BandStrip(el.strip);
+    this.cover.attach(el.art);
+    this.director = new DimensionDirector(
+      (to) => this.set({ queued: to }),
+      (dim) => this.set({ dim, queued: -1 }),
+    );
+    this.director.now = this.state.dim;
+    this.store.subscribe((s, prev) => this.onState(s, prev));
+  }
+
+  get state(): AppState {
+    return this.store.get();
+  }
+
+  set(patch: Partial<AppState>): void {
+    this.store.set(patch);
+  }
+
+  // ---------------------------------------------------------------- lifecycle
+
+  start(): void {
+    try {
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      this.sysReduce = mq.matches;
+      mq.addEventListener('change', (e) => {
+        this.sysReduce = e.matches;
+        this.setMotion(this.state.motion);
+      });
+    } catch {}
+    this.setMotion(this.state.motion);
+    this.applyTheme();
+    this.resize();
+    this.resizeObs = new ResizeObserver(() => this.resize());
+    this.resizeObs.observe(this.el.root);
+    this.drawCover();
+    void loadCanvasFonts().then(() => {
+      this.stage.word.invalidate();
+      this.lyrics.retime();
+      this.drawCover();
+    });
+    this.alive = true;
+    this.last = performance.now();
+    const loop = (t: number): void => {
+      if (!this.alive) return;
+      this.raf = requestAnimationFrame(loop);
+      try {
+        this.frame(t);
+      } catch (err) {
+        if (!this.errLogged) {
+          this.errLogged = true;
+          console.error(err);
+        }
+      }
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  destroy(): void {
+    this.alive = false;
+    cancelAnimationFrame(this.raf);
+    this.resizeObs?.disconnect();
+    this.stopSources();
+    void this.audio.ctx?.close();
+  }
+
+  private onState(s: AppState, prev: AppState): void {
+    if (s.dim !== prev.dim) this.applyTheme();
+    if (!this.cover.hasArt && (s.dim !== prev.dim || s.meta !== prev.meta)) this.drawCover();
+    if (s.quality !== prev.quality) {
+      if (s.quality !== 'auto') this.q = 1;
+      this.resize();
+    }
+    if (settingsChanged(s, prev)) {
+      if (this.saveTimer) clearTimeout(this.saveTimer);
+      this.saveTimer = setTimeout(() => saveSettings(this.state), 300);
+    }
+  }
+
+  private applyTheme(): void {
+    const D = DIMS[this.state.dim];
+    const st = this.el.root.style;
+    st.setProperty('--accent', D.accent);
+    st.setProperty('--caption', D.caption);
+    st.setProperty('--stage', D.stage);
+    st.setProperty('--p1', D.plates[0]);
+    st.setProperty('--p2', D.plates[1]);
+    st.setProperty('--p3', D.plates[2]);
+  }
+
+  private resize(): void {
+    const w = this.el.root.clientWidth || window.innerWidth;
+    const h = this.el.root.clientHeight || window.innerHeight;
+    const qs = Stage.qualityScale(this.state.quality, this.q);
+    this.stage.resize(w, h, qs);
+    const layout: Layout = w < 768 ? 'mobile' : w < 1200 ? 'tablet' : 'desktop';
+    this.set({ layout, scale: Math.round(qs * 100) / 100 });
+  }
+
+  private drawCover(): void {
+    const s = this.state;
+    this.cover.draw(DIMS[s.dim], s.meta.title || s.title, s.meta.artist || '');
+  }
+
+  // ---------------------------------------------------------------- audio sources
+
+  private ensureAudio(): AudioContext | null {
+    const fresh = !this.audio.ctx;
+    const ctx = this.audio.ensure();
+    if (!ctx) {
+      this.toast('Web Audio is not available in this browser', 'warn');
+      return null;
+    }
+    if (fresh && this.audio.analysers) {
+      this.features.attach(this.audio.analysers, ctx.sampleRate);
+      ctx.addEventListener('statechange', () =>
+        this.set({ suspended: ctx.state === 'suspended' && this.state.playing }),
+      );
+    }
+    return ctx;
+  }
+
+  private stopSources(): void {
+    this.synth?.stop();
+    this.file?.dispose();
+    this.file = null;
+    this.live?.dispose();
+    this.live = null;
+    this.lyricsAbort?.abort();
+    this.lyricsAbort = null;
+  }
+
+  /** Common reset when a new song or input starts. */
+  private beginRun(key: string, fromCover: boolean): void {
+    const t = performance.now();
+    this.songKey = key;
+    this.features.newSong();
+    this.stats.beats = this.stats.strong = this.stats.snares = 0;
+    this.mood.reset(key);
+    this.stage.background.setStyle('rays', t);
+    this.set({ mood: null, bpm: 0 });
+    if (this.state.auto || this.state.screen === 'cover') this.director.reset(0, t);
+    if (!fromCover && this.state.screen === 'cover') this.set({ screen: 'live' });
+    this.lastInput = t;
+  }
+
+  startDemo(fromCover = false): void {
+    const ctx = this.ensureAudio();
+    if (!ctx || !this.audio.input) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+    this.stopSources();
+    this.synth ??= new DemoSynth(ctx, this.audio.input);
+    this.synth.start();
+    this.audio.setMonitor(true);
+    this.set({ source: 'demo', playing: true, card: null, requesting: null });
+    this.beginRun('demo', fromCover);
+    this.setMeta({
+      title: 'Night Shift Loop',
+      artist: 'BEAT LAB house band',
+      album: 'Demo beat · synthesised live',
+      year: '2026',
+      fmt: 'SYNTH',
+    });
+    this.setLyrics(demoLyrics(), 'Demo lyrics');
+    if (fromCover) this.leaveCover();
+  }
+
+  /** Cover → stage transition: sparks burst, cover slides away, stage starts at Inkfall. */
+  private leaveCover(): void {
+    this.stage.hits.sparkBurstPending = true;
+    this.set({ leaving: true });
+    setTimeout(() => {
+      this.director.reset(0, performance.now());
+      this.set({ screen: 'live', leaving: false });
+    }, 420);
+  }
+
+  openFilePicker(): void {
+    this.ensureAudio();
+    this.el.fileInput.click();
+  }
+
+  /** Files from the picker or a drop: one audio file, optionally with its .lrc. */
+  takeFiles(list: FileList | File[]): void {
+    const files = Array.from(list);
+    const isLrc = (f: File): boolean => /\.(lrc|txt)$/i.test(f.name);
+    const lrc = files.find(isLrc) ?? null;
+    const song = files.find((f) => !isLrc(f));
+    if (song) {
+      this.pendingLrc = lrc;
+      void this.loadFile(song);
+    } else if (lrc) {
+      if (this.state.source === 'file') this.loadLrcFile(lrc);
+      else this.toast('Load a song first, then its .lrc', 'warn');
+    }
+  }
+
+  private async loadFile(file: File): Promise<void> {
+    const ctx = this.ensureAudio();
+    if (!ctx || !this.audio.input) return;
+    const probe = document.createElement('audio');
+    if (file.type && !file.type.startsWith('audio/') && !file.type.startsWith('video/')) {
+      this.set({ card: 'err-file' });
+      return;
+    }
+    if (file.type && probe.canPlayType(file.type) === '') {
+      this.set({ card: 'err-file' });
+      return;
+    }
+    if (ctx.state === 'suspended') void ctx.resume();
+    this.stopSources();
+    const src = new FileSource(ctx, file, this.audio.input);
+    this.file = src;
+    this.audio.setMonitor(true);
+    src.onEnded = () => {
+      if (this.file === src) this.set({ playing: false });
+    };
+    src.onError = () => {
+      if (this.file !== src) return;
+      this.stopSources();
+      this.set({ card: 'err-file', source: null, playing: false, title: '' });
+    };
+    this.set({ source: 'file', playing: true, title: file.name, card: null, requesting: null, scrub: 0, scrubMax: 1 });
+    const key = `file:${file.name}:${file.size}`;
+    this.beginRun(key, false);
+    this.setLyrics(null, '');
+    const guess = guessFromFilename(file.name);
+    this.setMeta(this.metaFrom({}, file));
+    src.play().catch(() => {
+      if (this.file === src) this.set({ playing: false });
+    });
+    const lrc = this.pendingLrc;
+    this.pendingLrc = null;
+    const [tags, duration] = await Promise.all([readFileTags(file), src.duration()]);
+    if (this.songKey !== key) return;
+    const meta = this.metaFrom(tags, file);
+    this.setMeta(meta);
+    void this.cover.load(tags.pic).then((ok) => {
+      if (ok && this.songKey === key) {
+        this.set({ hasArt: true });
+        this.drawCover();
+      }
+    });
+    if (lrc) this.loadLrcFile(lrc);
+    else if (this.state.lyricsOnline)
+      void this.fetchLyrics(
+        key,
+        tags.artist
+          ? { artist: tags.artist, title: tags.title || guess.title, q: `${tags.artist} ${tags.title || guess.title}` }
+          : guess,
+        duration,
+      );
+    else this.toast('Tip: pick the song and its .lrc together for synced lyrics');
+  }
+
+  private metaFrom(tags: Tags, file: File): TrackMeta {
+    const g = guessFromFilename(file.name);
+    const ext = (file.name.split('.').pop() || '').toUpperCase();
+    return {
+      title: tags.title || g.title || file.name,
+      artist: tags.artist || g.artist || '',
+      album: tags.album || '',
+      year: tags.year || '',
+      fmt: ext.length <= 4 ? ext : 'FILE',
+      mb: file.size ? (file.size / 1048576).toFixed(1) : '',
+    };
+  }
+
+  private setMeta(meta: TrackMeta): void {
+    this.cover.clear();
+    this.set({ meta, title: meta.title || '', hasArt: false });
+    this.drawCover();
+  }
+
+  pickSource(id: SourceId): void {
+    this.poke();
+    if (id === 'demo') this.startDemo(this.state.screen === 'cover');
+    else if (id === 'file') this.openFilePicker();
+    else if (id === 'mic') this.set({ card: this.state.micDenied ? 'err-mic-denied' : 'perm-mic' });
+    else
+      this.set({
+        card: LiveSource.tabSupported() && this.state.layout !== 'mobile' ? 'perm-tab' : 'err-tab-unsupported',
+      });
+  }
+
+  /** Called from the permission card's button (a user gesture, so the browser prompt can open). */
+  async startLive(kind: LiveKind): Promise<void> {
+    const ctx = this.ensureAudio();
+    if (!ctx || !this.audio.input) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+    this.set({ card: null, requesting: kind });
+    let src: LiveSource;
+    try {
+      src = kind === 'mic' ? await LiveSource.mic(ctx, this.audio.input) : await LiveSource.tab(ctx, this.audio.input);
+    } catch (e) {
+      const code = e instanceof LiveSourceError ? e.code : 'failed';
+      const card: CardId | null =
+        code === 'denied'
+          ? 'err-mic-denied'
+          : code === 'missing'
+            ? 'err-mic-missing'
+            : code === 'no-audio'
+              ? 'err-tab-noaudio'
+              : code === 'unsupported'
+                ? 'err-tab-unsupported'
+                : null;
+      this.set({
+        requesting: null,
+        card,
+        micDenied: kind === 'mic' && code === 'denied' ? true : this.state.micDenied,
+      });
+      if (code === 'cancelled') this.toast('Sharing cancelled');
+      else if (code === 'failed')
+        this.toast(kind === 'mic' ? "Couldn't open the microphone" : "Couldn't capture that tab", 'warn');
+      return;
+    }
+    this.stopSources();
+    this.live = src;
+    this.audio.setMonitor(false);
+    src.onEnded = () => {
+      if (this.live !== src) return;
+      this.stopSources();
+      this.set({ source: null, playing: false });
+      this.toast(kind === 'tab' ? 'Tab sharing stopped' : 'Microphone disconnected', 'warn');
+    };
+    this.set({
+      source: kind,
+      playing: true,
+      requesting: null,
+      micDenied: kind === 'mic' ? false : this.state.micDenied,
+    });
+    this.beginRun(`${kind}:${Date.now()}`, this.state.screen === 'cover');
+    this.setMeta(
+      kind === 'mic'
+        ? { title: 'Microphone', artist: 'Live input', fmt: 'LIVE' }
+        : { title: 'Shared tab', artist: src.label || 'Live tab audio', fmt: 'LIVE' },
+    );
+    this.setLyrics(null, '');
+    if (this.state.screen === 'cover') this.leaveCover();
+  }
+
+  togglePlay(): void {
+    const s = this.state;
+    this.poke();
+    if (!s.source) {
+      this.startDemo(s.screen === 'cover');
+      return;
+    }
+    const ctx = this.audio.ctx;
+    if (s.source === 'file' && this.file) {
+      if (this.file.paused) {
+        if (ctx?.state === 'suspended') void ctx.resume();
+        this.file.play().catch(() => {});
+        this.set({ playing: true });
+      } else {
+        this.file.pause();
+        this.set({ playing: false });
+      }
+      return;
+    }
+    if (!ctx) return;
+    if (s.playing) {
+      this.synth?.pause();
+      void ctx.suspend();
+      this.set({ playing: false });
+    } else {
+      void ctx.resume();
+      if (s.source === 'demo') this.synth?.resume();
+      this.set({ playing: true });
+    }
+  }
+
+  seek(seconds: number): void {
+    if (!this.file) return;
+    this.file.currentTime = Math.max(0, seconds);
+    this.set({ scrub: Math.floor(this.file.currentTime) });
+  }
+
+  seekBy(delta: number): void {
+    if (this.file) this.seek(this.file.currentTime + delta);
+  }
+
+  resumeAudio(): void {
+    void this.audio.ctx?.resume();
+  }
+
+  // ---------------------------------------------------------------- lyrics
+
+  private setLyrics(lines: LyricLine[] | null, src: string): void {
+    this.lyrics.set(lines);
+    this.set({ lyricSrc: lines && lines.length ? src : '' });
+  }
+
+  private loadLrcFile(f: File): void {
+    const key = this.songKey;
+    f.text()
+      .then((txt) => {
+        if (this.songKey !== key) return;
+        const lines = parseLRC(txt);
+        if (!lines.length) {
+          this.toast('No timed lines in that .lrc file', 'warn');
+          return;
+        }
+        this.lyricsAbort?.abort();
+        this.setLyrics(lines, 'LRC file');
+        this.toast(`Lyrics loaded: ${this.lyrics.count} synced lines`);
+      })
+      .catch(() => this.toast("Couldn't read that .lrc file", 'warn'));
+  }
+
+  private async fetchLyrics(
+    key: string,
+    q: { artist: string; title: string; q: string },
+    duration: number,
+  ): Promise<void> {
+    this.lyricsAbort?.abort();
+    const ac = new AbortController();
+    this.lyricsAbort = ac;
+    this.set({ lyricSrc: 'Searching' });
+    const stale = (): boolean => this.songKey !== key || ac.signal.aborted;
+    try {
+      const hit = await findSyncedLyrics({ ...q, duration }, ac.signal);
+      if (stale()) return;
+      const lines = hit ? parseLRC(hit.syncedLyrics) : [];
+      if (hit && lines.length) {
+        this.setLyrics(lines, 'LRCLIB');
+        this.toast('Synced lyrics: ' + (hit.artistName ? hit.artistName + ' — ' : '') + (hit.trackName || q.title));
+      } else {
+        this.set({ lyricSrc: '' });
+        this.toast('No synced lyrics found. Drop the song with its .lrc file.', 'warn');
+      }
+    } catch {
+      if (stale()) return;
+      this.set({ lyricSrc: '' });
+      this.toast("Couldn't reach the lyrics service. Drop the song with its .lrc file.", 'warn');
+    }
+  }
+
+  /** Song position in seconds for lyrics, or -1 when the source has no timeline. */
+  private songTime(): number {
+    const s = this.state;
+    if (s.source === 'file' && this.file) return this.file.currentTime;
+    if (s.source === 'demo' && this.synth?.active) return this.synth.songTime();
+    return -1;
+  }
+
+  // ---------------------------------------------------------------- settings and dimensions
+
+  pickDim(i: number): void {
+    this.poke();
+    this.set({ auto: false });
+    this.director.pick(i, performance.now());
+    this.toast('Dimension locked: ' + DIMS[i].name);
+  }
+
+  toggleAuto(): void {
+    const on = !this.state.auto;
+    this.poke();
+    this.set({ auto: on });
+    this.toast(on ? 'Auto dimensions on' : 'Dimension locked: ' + DIMS[this.director.now].name);
+  }
+
+  setMotion(m: MotionPref): void {
+    this.set({ motion: m, reduce: m === 'on' || (m === 'system' && this.sysReduce) });
+  }
+
+  toggleCalm(): void {
+    const on = !this.state.reduce;
+    this.set({ motion: on ? 'on' : 'system', reduce: on || this.sysReduce, strict: on });
+  }
+
+  setDose(v: number): void {
+    this.set({ dose: Math.max(0, Math.min(100, Math.round(v / 5) * 5)) });
+  }
+
+  toggleFx(key: keyof FxFlags): void {
+    const fx = { ...this.state.fx, [key]: !this.state.fx[key] };
+    this.set({ fx });
+  }
+
+  setQuality(q: Quality): void {
+    this.set({ quality: q });
+  }
+
+  /** Visual delay in ms: the manual value, or the auto estimate from output latency. */
+  syncDelay(): number {
+    const v = this.state.syncMs;
+    return v === null ? autoDelay(this.audio.latencyMs()) : v;
+  }
+
+  nudgeSync(dv: number): void {
+    const v = Math.max(0, Math.min(MAX_DELAY_MS, this.syncDelay() + dv));
+    this.set({ syncMs: v });
+    this.toast(`Visuals delayed ${v} ms`);
+  }
+
+  toggleSyncAuto(): void {
+    this.set({ syncMs: this.state.syncMs === null ? this.syncDelay() : null });
+  }
+
+  fullscreen(): void {
+    const fail = (): void => this.toast("Fullscreen isn't available here", 'warn');
+    try {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else if (this.el.root.requestFullscreen) this.el.root.requestFullscreen().catch(fail);
+      else fail();
+    } catch {
+      fail();
+    }
+  }
+
+  poke(): void {
+    this.lastInput = performance.now();
+    if (this.state.idle) this.set({ idle: false });
+  }
+
+  toast(msg: string, tone: 'info' | 'warn' = 'info'): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.set({ toast: { msg, tone } });
+    this.toastTimer = setTimeout(() => this.set({ toast: null }), 4000);
+  }
+
+  // ---------------------------------------------------------------- frame loop
+
+  private frame(t: number): void {
+    const dt = Math.min(0.05, Math.max(0.001, (t - this.last) / 1000));
+    this.last = t;
+    const s = this.state;
+    const isLive = s.playing && s.source !== null && this.audio.running;
+    const live = this.features.update(t, dt, {
+      live: isLive,
+      playing: s.playing,
+      hasSource: s.source !== null,
+      demoHint: s.source === 'demo' && this.synth ? this.synth.hint : null,
+    });
+    const lf = live.f;
+    if (s.playing && isLive) {
+      if (lf.beat) this.stats.beats++;
+      if (lf.strong) this.stats.strong++;
+      if (lf.snare) this.stats.snares++;
+    }
+    this.stats.intensity = lf.intensity;
+    if (s.screen === 'live') this.onMood(lf, dt, t);
+    this.director.update(lf, t, dt, {
+      playing: s.playing,
+      live: s.screen === 'live',
+      auto: s.auto,
+      moodTh: moodLook(s.mood).th,
+    });
+
+    const delay = this.syncDelay();
+    const a = this.sync.apply(live, t, delay);
+    const st = this.state;
+    this.stage.events(a.f, t, st, this.director.now);
+    const songT = this.songTime();
+    this.stage.render({
+      a,
+      t,
+      dt,
+      s: st,
+      dim: this.director.now,
+      profile: this.mood.profile,
+      motion: moodLook(st.mood).motion,
+      word: this.giantWord(st),
+      wipe: (ms) => this.director.advanceWipe(t, ms),
+      envelope: this.features.sinT[0],
+      drawLyrics: (c, D, k, kick) => {
+        if (songT < 0 || !this.lyrics.active) return;
+        this.lyrics.draw({
+          c,
+          songTime: songT - delay / 1000,
+          t,
+          W: c.canvas.width,
+          H: c.canvas.height,
+          k,
+          D,
+          layout: st.layout,
+          calm: st.reduce,
+          style: moodLook(st.mood).lyric,
+          bpm: st.bpm,
+          kick,
+        });
+      },
+    });
+    this.strip.draw(
+      a.f.bands,
+      DIMS[this.director.now],
+      st.layout !== 'desktop',
+      !st.playing,
+      t - this.stage.lastBeatSeen < 120,
+    );
+    this.perf(dt, t);
+    this.tick(t, lf);
+    this.onFrame?.(a);
+  }
+
+  private onMood(f: Features, dt: number, t: number): void {
+    const dec = this.mood.observe(f, dt, t, this.features.spectrum);
+    if (!dec) return;
+    const look = MOODS[dec.mood];
+    const prev = this.state.mood;
+    this.stage.background.setStyle(look.bg, t);
+    this.lyrics.retime();
+    this.set({ mood: dec.mood, bpm: dec.bpm });
+    if (dec.first)
+      this.toast(`Mood read: ${look.label}${dec.bpm ? ` · ${dec.bpm} BPM` : ''} · ${look.bgName} background`);
+    else if (prev !== dec.mood) this.toast('Mood shifted: ' + look.label);
+  }
+
+  private giantWord(s: AppState): string {
+    if (s.source === 'demo' && s.section) return s.section;
+    if (s.source && s.mood) return MOODS[s.mood].label;
+    return DIMS[this.director.now].name.toUpperCase();
+  }
+
+  /** Adaptive quality: drop render scale when frames run long, restore it after 10 s of headroom. */
+  private perf(dt: number, t: number): void {
+    this.frameMs += (dt * 1000 - this.frameMs) * 0.05;
+    if (!this.state.playing || this.state.quality !== 'auto' || t - this.perfT < 2000) return;
+    this.perfT = t;
+    if (this.frameMs > 20 && this.q > 0.5) {
+      this.q = Math.max(0.5, this.q * 0.75);
+      this.resize();
+      this.goodFor = 0;
+      if (!this.lowered) {
+        this.lowered = true;
+        this.toast('Lowered quality to keep it smooth', 'warn');
+      }
+    } else if (this.frameMs < 12 && this.q < 1) {
+      this.goodFor += 2;
+      if (this.goodFor >= 10) {
+        this.q = Math.min(1, this.q / 0.75);
+        this.resize();
+        this.goodFor = 0;
+      }
+    }
+  }
+
+  /** UI-rate updates (8 per second): clock text, status, idle, safety counters. */
+  private tick(t: number, f: Features): void {
+    if (t - this.uiT < 125) return;
+    this.uiT = t;
+    const s = this.state;
+    const up: Partial<AppState> = {};
+    let section = '';
+    let timeL = '';
+    let timeR = '';
+    if (s.source === 'file' && this.file) {
+      const cur = this.file.currentTime;
+      const d = Number.isFinite(this.file.el.duration) ? this.file.el.duration : 0;
+      timeL = formatTime(cur);
+      timeR = '−' + formatTime(Math.max(0, d - cur));
+      up.scrub = Math.floor(cur);
+      up.scrubMax = Math.max(1, Math.floor(d));
+    } else if (s.source === 'demo' && this.synth?.active) {
+      const bar = Math.floor(this.synth.audibleStep() / 16);
+      section = sectionOf(bar).toUpperCase();
+      timeL = 'BAR ' + String(bar + 1).padStart(2, '0') + ' / 32';
+      timeR = section;
+    } else if (s.source === 'mic' || s.source === 'tab') {
+      timeL = 'LIVE';
+      timeR = s.playing ? Math.max(-90, Math.round(f.db)) + ' DB' : 'PAUSED';
+    }
+    Object.assign(up, { timeL, timeR, section });
+    let status: AppState['status'] = 'ready';
+    if (s.source) status = !s.playing ? 'paused' : f.silent ? 'no-signal' : 'listening';
+    else if (s.micDenied) status = 'blocked';
+    up.status = status;
+    up.idle = s.autoHide && s.playing && s.screen === 'live' && !s.drawer && !s.card && t - this.lastInput > 2500;
+    up.flashes = this.stage.flashes.count(t);
+    up.clamps = this.stage.clamp.clamps;
+    up.suspended = s.playing && this.audio.ctx?.state === 'suspended';
+    this.set(up);
+  }
+
+  // ---------------------------------------------------------------- keyboard
+
+  onKey(e: KeyboardEvent): void {
+    const s = this.state;
+    const tag = (e.target as HTMLElement | null)?.tagName ?? '';
+    this.poke();
+    if (e.key === 'Escape') {
+      if (s.card) this.set({ card: null });
+      else if (s.drawer) this.set({ drawer: false });
+      else if (s.clean) this.set({ clean: false });
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!s.shortcuts || tag === 'INPUT' || tag === 'TEXTAREA' || s.card) return;
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (s.screen !== 'live') {
+      if (key === 'd') this.startDemo(true);
+      return;
+    }
+    switch (key) {
+      case ' ':
+        if (tag === 'BUTTON') return;
+        e.preventDefault();
+        this.togglePlay();
+        break;
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+        this.pickDim(Number(key) - 1);
+        break;
+      case 'a':
+        this.toggleAuto();
+        break;
+      case 'h':
+        this.set({ clean: !s.clean });
+        break;
+      case ',':
+        this.nudgeSync(-20);
+        break;
+      case '.':
+        this.nudgeSync(20);
+        break;
+      case 'c':
+        this.toggleFx('dancers');
+        this.toast(this.state.fx.dancers ? 'Ink crew on' : 'Ink crew off');
+        break;
+      case 'l':
+        this.toggleFx('lyrics');
+        this.toast(this.state.fx.lyrics ? 'Lyrics on' : 'Lyrics off');
+        break;
+      case 's':
+        this.set({ drawer: !s.drawer });
+        break;
+      case 'd':
+        this.startDemo();
+        break;
+      case 'o':
+        this.openFilePicker();
+        break;
+      case 'm':
+        this.pickSource('mic');
+        break;
+      case 't':
+        this.pickSource('tab');
+        break;
+      case ']':
+        this.setDose(s.dose + 10);
+        break;
+      case '[':
+        this.setDose(s.dose - 10);
+        break;
+      case 'f':
+        this.fullscreen();
+        break;
+      case '?':
+        this.set({ card: 'keys' });
+        break;
+      case 'ArrowLeft':
+        this.seekBy(-5);
+        break;
+      case 'ArrowRight':
+        this.seekBy(5);
+        break;
+    }
+  }
+}

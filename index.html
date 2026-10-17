@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>BEAT LAB — audio-reactive comic print visualizer</title>
+    <meta
+      name="description"
+      content="Play music and watch a comic-book print run misfire in time with it. Beat detection, mood reading, synced lyrics and dancing ink figures, all in your browser."
+    />
+    <meta name="theme-color" content="#0B0A10" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="BEAT LAB" />
+    <meta property="og:description" content="An audio-reactive comic print visualizer for the browser." />
+    <meta property="og:image" content="/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div id="app" class="bx is-cover" data-layout="desktop" tabindex="-1">
+      <canvas id="stage" class="stage" role="img" aria-label="Audio-reactive comic print visualizer"></canvas>
+      <input id="file" class="vh" type="file" accept="audio/*,.lrc,.txt" multiple tabindex="-1" aria-hidden="true" />
+      <div id="live" class="vh" role="status" aria-live="polite"></div>
+      <span class="crop tl chrome" aria-hidden="true"></span><span class="crop tr chrome" aria-hidden="true"></span
+      ><span class="crop bl chrome" aria-hidden="true"></span><span class="crop br chrome" aria-hidden="true"></span>
+
+      <noscript><p class="fatal">BEAT LAB needs JavaScript to run.</p></noscript>
+
+      <section id="cover" class="cover" aria-labelledby="coverTitle">
+        <p class="mono cover__slug">Run 001 · audio-reactive press</p>
+        <h1 id="coverTitle" class="disp cover__name"><span>BEAT</span><span>LAB</span></h1>
+        <div class="cover__panel">
+          <p class="cover__tag">Play music and watch a print run misfire in time with it.</p>
+          <p class="cover__warn">
+            <svg class="ic ic--sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3l10 18H2zM12 10v5M12 18v1"></path></svg
+            >Contains flashing and fast motion. Calm mode limits both.
+          </p>
+        </div>
+        <div class="cover__row">
+          <button id="coverDemo" class="btn cta" type="button">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h3l2-6 3 12 3-9 2 5 2-2h5"></path></svg
+            >Play the demo beat
+          </button>
+          <button id="coverFile" class="btn" type="button">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4"></path></svg>Open
+            a file
+          </button>
+          <button id="coverMic" class="btn" type="button">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 3h6v11H9zM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path></svg
+            >Use mic
+          </button>
+          <button id="coverTab" class="btn" type="button">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 3h9v11H3z"></path></svg>Share a tab
+          </button>
+          <button id="coverCalm" class="switch" type="button" role="switch" aria-checked="false">
+            <span class="switch__t" aria-hidden="true"></span><span class="label">Calm mode</span>
+          </button>
+        </div>
+        <p class="mono cover__hint">Or drop a song (and its .lrc for lyrics) anywhere</p>
+        <p class="cover__foot">
+          Audio is analysed on your device and never uploaded. Lyrics lookups send only the artist and title to
+          <a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a>.
+        </p>
+      </section>
+
+      <div class="mast">
+        <div class="mast__in">
+          <h2 class="disp word">BEAT LAB</h2>
+          <span id="slug" class="mono slug"></span>
+        </div>
+      </div>
+
+      <div class="chrome pos-top">
+        <div id="status" class="status">
+          <span class="seg mono"><span class="dot" aria-hidden="true"></span><span id="srcWord">No source</span></span>
+          <span id="statusWord" class="seg mono sword">Ready</span>
+          <button
+            id="btnHud"
+            class="btn btn--icon hide-sm"
+            type="button"
+            aria-label="Tuning readout"
+            aria-pressed="false"
+          >
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 20h18M6 16v-5M10 16V6M14 16v-8M18 16v-3"></path>
+            </svg>
+          </button>
+          <button id="btnSettings" class="btn btn--icon" type="button" aria-label="Settings">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h4M12 17h8M14 5h4v4h-4zM8 15h4v4H8z"></path>
+            </svg>
+          </button>
+          <button id="btnClean" class="btn btn--icon hide-sm" type="button" aria-label="Clean stage">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM9 12a3 3 0 1 0 6 0 3 3 0 1 0-6 0M4 20L20 4"></path>
+            </svg>
+          </button>
+          <button id="btnFull" class="btn btn--icon" type="button" aria-label="Fullscreen">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="chrome pos-strip"><canvas id="strip" class="strip" aria-hidden="true"></canvas></div>
+
+      <div id="hud" class="hud mono" aria-hidden="true" hidden>
+        <div><span>Intensity</span><span data-hud="I">0.00</span></div>
+        <div><span>Next step at</span><span data-hud="N">—</span></div>
+        <div><span>Beats</span><span data-hud="B">0</span></div>
+        <div><span>Strong beats</span><span data-hud="S">0</span></div>
+        <div><span>Snares</span><span data-hud="R">0</span></div>
+        <div><span>Frame</span><span data-hud="F">0 ms</span></div>
+        <div><span>Render scale</span><span data-hud="Q">1.00</span></div>
+        <div><span>Flashes / s</span><span data-hud="L">0 / 3</span></div>
+        <div><span>Mood</span><span data-hud="M">—</span></div>
+        <div><span>Tempo</span><span data-hud="T">—</span></div>
+        <div><span>Energy (arousal)</span><span data-hud="A">—</span></div>
+        <div><span>Brightness (valence)</span><span data-hud="V">—</span></div>
+        <div><span>Lyrics</span><span data-hud="Y">none</span></div>
+        <div><span>Visual delay</span><span data-hud="D">0 ms</span></div>
+        <div><span>Output latency</span><span data-hud="O">—</span></div>
+      </div>
+
+      <div class="dock">
+        <div class="chrome pos-console">
+          <div class="ftabs" role="toolbar" aria-label="Audio source">
+            <button class="ftab" type="button" data-source="demo">
+              <svg class="ic ic--sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2 12h3l2-6 3 12 3-9 2 5 2-2h5"></path></svg
+              ><span>Demo</span>
+            </button>
+            <button class="ftab" type="button" data-source="file">
+              <svg class="ic ic--sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 3h8l4 4v14H6zM14 3v4h4"></path></svg
+              ><span>File</span>
+            </button>
+            <button class="ftab" type="button" data-source="mic">
+              <svg class="ic ic--sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 3h6v11H9zM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path></svg
+              ><span>Mic</span>
+            </button>
+            <button class="ftab" type="button" data-source="tab">
+              <svg class="ic ic--sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 3h9v11H3z"></path></svg
+              ><span>Tab</span>
+            </button>
+          </div>
+          <section id="np" class="cap np" aria-label="Now playing">
+            <div class="np__art"><canvas id="art" class="np__canvas" role="img" aria-label="Cover art"></canvas></div>
+            <div class="np__info">
+              <div class="np__kick">
+                <span id="npKick" class="mono">No source yet</span
+                ><span class="np__meter" aria-hidden="true"
+                  ><i class="m0"></i><i class="m1"></i><i class="m2"></i><i class="m3"></i><i class="m4"></i
+                ></span>
+              </div>
+              <div id="npTitle" class="disp np__title">No track yet</div>
+              <div id="npArtist" class="np__artist">Pick a source on the tabs above</div>
+              <div id="npAlbum" class="mono np__album">&nbsp;</div>
+              <div id="npChips" class="np__chips"></div>
+            </div>
+            <div class="np__bar">
+              <button id="btnPlay" class="btn play" type="button" aria-label="Play">
+                <svg class="ic ic--fill" viewBox="0 0 24 24" aria-hidden="true">
+                  <path id="playIcon" d="M7 4l13 8-13 8z"></path>
+                </svg>
+              </button>
+              <span id="timeL" class="time">—</span>
+              <div id="scrubWrap" class="slider" hidden>
+                <div class="slider__track"><div id="scrubFill" class="slider__fill"></div></div>
+                <input
+                  id="scrub"
+                  class="range range--scrub"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="1"
+                  value="0"
+                  aria-label="Position"
+                />
+              </div>
+              <span id="npFill" class="np__fill" aria-hidden="true"></span>
+              <span id="timeR" class="time np__rem"></span>
+            </div>
+          </section>
+        </div>
+
+        <div class="chrome pos-dims">
+          <section class="cap dims" aria-label="Dimensions and effects">
+            <div class="dims__head">
+              <button id="btnAuto" class="switch" type="button" role="switch" aria-checked="true">
+                <span class="switch__t" aria-hidden="true"></span><span id="autoLabel" class="label">Auto</span>
+              </button>
+              <button id="btnCrew" class="switch" type="button" role="switch" aria-checked="true">
+                <span class="switch__t" aria-hidden="true"></span><span class="label">Crew</span>
+              </button>
+              <button id="btnLyrics" class="switch" type="button" role="switch" aria-checked="true">
+                <span class="switch__t" aria-hidden="true"></span><span class="label">Lyrics</span>
+              </button>
+              <button id="btnCalm" class="switch" type="button" role="switch" aria-checked="false">
+                <span class="switch__t" aria-hidden="true"></span><span class="label">Calm</span>
+              </button>
+            </div>
+            <div id="plates" class="plates" role="radiogroup" aria-label="Visual dimension"></div>
+            <div class="row">
+              <label class="label" for="dose">FX Dose</label>
+              <div class="slider">
+                <div class="slider__track"><div id="doseFill" class="slider__fill"></div></div>
+                <input id="dose" class="range" type="range" min="0" max="100" step="5" value="70" />
+              </div>
+              <span id="doseVal" class="time">70</span>
+            </div>
+            <div class="row sync" role="group" aria-label="Visual sync delay">
+              <span
+                class="label"
+                title="Delays the visuals to match audio output latency, for example Bluetooth headphones"
+                >Sync</span
+              >
+              <button class="btn btn--icon" type="button" data-sync="-20" aria-label="Less visual delay">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg>
+              </button>
+              <span class="time" data-sync-val aria-live="polite">0 ms</span>
+              <button class="btn btn--icon" type="button" data-sync="20" aria-label="More visual delay">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg>
+              </button>
+              <button class="btn btn--txt" type="button" data-sync-auto aria-pressed="true">Auto</button>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <button id="btnUnclean" class="btn unclean" type="button" hidden>Show controls</button>
+
+      <aside id="drawer" class="drawer" aria-labelledby="drawerTitle" hidden>
+        <div class="drawer__head">
+          <h2 id="drawerTitle" class="disp" tabindex="-1">Settings</h2>
+          <button id="btnCloseDrawer" class="btn btn--icon" type="button" aria-label="Close settings">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"></path></svg>
+          </button>
+        </div>
+        <div>
+          <h3 class="label muted">Effects</h3>
+          <div id="fxList"></div>
+        </div>
+        <div>
+          <h3 class="label muted">Accessibility</h3>
+          <div class="srow">
+            <span
+              ><span class="sname">Reduce motion</span><span class="shint">Follows your system by default.</span></span
+            ><span class="segs" role="group" aria-label="Reduce motion" data-segs="motion"></span>
+          </div>
+          <div class="srow">
+            <span><span class="sname">Flash limit</span><span class="shint">Cannot be turned off.</span></span
+            ><span class="segs" role="group" aria-label="Flash limit" data-segs="strict"></span>
+          </div>
+          <div class="srow">
+            <span
+              ><span class="sname">Flashes this second</span
+              ><span id="clampText" class="shint">Safety clamps so far: 0</span></span
+            ><span class="sync-ctl"
+              ><span id="flashMeter" class="meter" aria-hidden="true"><i></i><i></i><i></i></span
+              ><span id="flashText" class="time">0 / 3</span></span
+            >
+          </div>
+          <div class="srow">
+            <span
+              ><span class="sname">Hide controls when idle</span
+              ><span class="shint">After 2.5 s while playing.</span></span
+            ><button
+              class="switch"
+              type="button"
+              role="switch"
+              data-toggle="autoHide"
+              aria-label="Hide controls when idle"
+            >
+              <span class="switch__t" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="srow">
+            <span
+              ><span class="sname">Single-key shortcuts</span><span class="shint">Press ? to see them all.</span></span
+            ><button
+              class="switch"
+              type="button"
+              role="switch"
+              data-toggle="shortcuts"
+              aria-label="Single-key shortcuts"
+            >
+              <span class="switch__t" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <div>
+          <h3 class="label muted">Audio</h3>
+          <div class="srow">
+            <span
+              ><span class="sname">Visual sync delay</span
+              ><span class="shint"
+                >Raise it if visuals land before you hear the hit (common with Bluetooth).</span
+              ></span
+            ><span class="sync-ctl"
+              ><button class="btn btn--icon" type="button" data-sync="-20" aria-label="Less visual delay">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg></button
+              ><span class="time" data-sync-val>0 ms</span
+              ><button class="btn btn--icon" type="button" data-sync="20" aria-label="More visual delay">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></button
+            ></span>
+          </div>
+          <div class="srow">
+            <span
+              ><span class="sname">Auto-estimate delay</span
+              ><span class="shint">From your audio output's reported latency.</span></span
+            ><button class="switch" type="button" role="switch" data-sync-auto aria-label="Auto-estimate delay">
+              <span class="switch__t" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="srow">
+            <span
+              ><span class="sname">Look up lyrics online</span
+              ><span class="shint">Sends artist and title to LRCLIB. Off: only .lrc files you add.</span></span
+            ><button
+              class="switch"
+              type="button"
+              role="switch"
+              data-toggle="lyricsOnline"
+              aria-label="Look up lyrics online"
+            >
+              <span class="switch__t" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <div>
+          <h3 class="label muted">Performance</h3>
+          <div class="srow">
+            <span><span class="sname">Quality</span><span id="scaleText" class="shint">Render scale 1.00×</span></span
+            ><span class="segs" role="group" aria-label="Quality" data-segs="quality"></span>
+          </div>
+        </div>
+        <p class="shint drawer__note">
+          Audio is analysed on this device and never recorded or uploaded. Mood is read from tempo, hit density and
+          brightness after 8 seconds. For synced lyrics, name files "Artist - Title" or pick a song and its .lrc file
+          together.
+        </p>
+      </aside>
+
+      <div id="scrim" class="scrim" hidden>
+        <section id="card" class="card" role="dialog" aria-modal="true" aria-labelledby="cardTitle" tabindex="-1">
+          <span id="cardKick" class="mono card__kick"></span>
+          <h2 id="cardTitle" class="disp"></h2>
+          <div id="cardBody"></div>
+          <div id="cardActions" class="actions"></div>
+        </section>
+      </div>
+
+      <button id="wake" class="btn wake cap" type="button" hidden>Tap to start sound</button>
+      <div class="drop" aria-hidden="true"><span class="disp">DROP TO PLAY</span></div>
+      <div id="toast" class="toast" role="status" hidden>
+        <span id="toastKick" class="mono tk">INFO</span><span id="toastMsg"></span>
+      </div>
+    </div>
+  </body>
+</html>

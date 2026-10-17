@@ -483,6 +483,10 @@ input:focus-visible,
 .ftab.is-denied {
   color: #ff5a4e;
 }
+.ftab.is-off {
+  color: var(--muted);
+  background-image: repeating-linear-gradient(135deg, #5b5568 0 1px, transparent 1px 4px);
+}
 @keyframes ants {
   50% {
     border-color: var(--muted);

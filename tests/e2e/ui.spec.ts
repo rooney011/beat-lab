@@ -128,3 +128,20 @@ test('microphone input (fake device)', async ({ page }, info) => {
     .toEqual(['mic', true, 'live']);
   await expect(page.locator('#npTitle')).toHaveText('Microphone');
 });
+
+test('phone: the Tab source is shown but unavailable and opens the help card', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'phone-only behaviour');
+  // The test Chromium uses a desktop UA, which reports tab capture as supported; a real phone
+  // cannot capture another tab's audio, so remove the API to reproduce that.
+  await page.addInitScript(() => {
+    try {
+      Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { configurable: true, value: undefined });
+    } catch {}
+  });
+  await page.goto('/?debug');
+  const tab = page.locator('#coverTab');
+  await expect(tab).toBeVisible();
+  await expect(tab).toHaveClass(/is-off/);
+  await tab.tap();
+  await expect(page.getByRole('alertdialog')).toContainText("another tab's audio");
+});

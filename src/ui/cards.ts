@@ -25,6 +25,7 @@ const openFile = (label: string, primary = false): CardAction => ({
     app.openFilePicker();
   },
 });
+const useMic: CardAction = { label: 'Use mic', primary: true, run: (app) => app.pickSource('mic') };
 
 export const CARDS: Record<CardId, CardDef> = {
   'perm-mic': {
@@ -72,10 +73,13 @@ export const CARDS: Record<CardId, CardDef> = {
   },
   'err-tab-unsupported': {
     kick: 'Error · tab-unsupported',
-    title: "Tab audio isn't available here",
-    body: ['Use Chrome or Edge on a computer, or play a file.'],
+    title: "Can't capture a tab here",
+    body: [
+      "Phone browsers don't let a website capture another tab's audio. Only Chrome or Edge on a computer can.",
+      'Use your mic to react to sound around you, or open a file instead.',
+    ],
     error: true,
-    actions: [openFile('Open a file', true)],
+    actions: [useMic, openFile('Open a file')],
   },
   'err-file': {
     kick: 'Error · file-unsupported',

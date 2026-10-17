@@ -233,7 +233,6 @@ export class Shell {
     coverEl.hidden = !cover;
     coverEl.classList.toggle('is-leaving', s.leaving);
     attr(byId('coverCalm'), 'aria-checked', String(s.reduce));
-    byId('coverTab').hidden = s.layout === 'mobile';
 
     // Status bar and masthead
     const M = s.mood ? MOODS[s.mood] : null;
@@ -256,8 +255,9 @@ export class Shell {
       b.classList.toggle('is-on', isOn);
       b.classList.toggle('is-wait', s.requesting === id);
       b.classList.toggle('is-denied', id === 'mic' && s.micDenied && !isOn);
+      // Tab capture needs desktop Chrome/Edge; show the tab everywhere but mark it unavailable.
+      b.classList.toggle('is-off', id === 'tab' && !this.tabOk);
       attr(b, 'aria-pressed', String(isOn));
-      b.hidden = id === 'tab' && (s.layout === 'mobile' || !this.tabOk);
       const label = b.querySelector('span');
       if (label)
         text(label, s.requesting === id ? 'Waiting…' : id === 'file' ? 'File' : id === 'mic' ? 'Mic' : 'Tab');

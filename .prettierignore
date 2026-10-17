@@ -4,3 +4,4 @@ package-lock.json
 tests/fixtures
 playwright-report
 test-results
+public

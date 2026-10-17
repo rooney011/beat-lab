@@ -14,6 +14,7 @@ export const PERSISTED = [
   'autoHide',
   'shortcuts',
   'lyricsOnline',
+  'aiMood',
 ] as const;
 type PersistedKey = (typeof PERSISTED)[number];
 export type Persisted = Pick<AppState, PersistedKey>;
@@ -68,6 +69,7 @@ export function sanitize(p: Partial<Persisted>): Partial<Persisted> {
   if (p.syncMs === null || (typeof p.syncMs === 'number' && p.syncMs >= 0 && p.syncMs <= MAX_DELAY_MS))
     out.syncMs = p.syncMs;
   if (p.quality === 'auto' || p.quality === 'high' || p.quality === 'low') out.quality = p.quality;
-  for (const k of ['autoHide', 'shortcuts', 'lyricsOnline'] as const) if (typeof p[k] === 'boolean') out[k] = p[k];
+  for (const k of ['autoHide', 'shortcuts', 'lyricsOnline', 'aiMood'] as const)
+    if (typeof p[k] === 'boolean') out[k] = p[k];
   return out;
 }

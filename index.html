@@ -117,6 +117,9 @@
         <div><span>Tempo</span><span data-hud="T">—</span></div>
         <div><span>Energy (arousal)</span><span data-hud="A">—</span></div>
         <div><span>Brightness (valence)</span><span data-hud="V">—</span></div>
+        <div><span>AI arousal</span><span data-hud="aiA">—</span></div>
+        <div><span>AI valence</span><span data-hud="aiV">—</span></div>
+        <div><span>AI inference</span><span data-hud="aiT">—</span></div>
         <div><span>Lyrics</span><span data-hud="Y">none</span></div>
         <div><span>Visual delay</span><span data-hud="D">0 ms</span></div>
         <div><span>Output latency</span><span data-hud="O">—</span></div>
@@ -238,6 +241,23 @@
           <div id="fxList"></div>
         </div>
         <div>
+          <h3 class="label muted">Mood</h3>
+          <div class="srow">
+            <span
+              ><span class="sname">AI mood (on-device model)</span
+              ><span class="shint">Hears the audio with a pre-trained model. Off keeps the quick read.</span></span
+            ><button
+              class="switch"
+              type="button"
+              role="switch"
+              data-toggle="aiMood"
+              aria-label="AI mood (on-device model)"
+            >
+              <span class="switch__t" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <div>
           <h3 class="label muted">Accessibility</h3>
           <div class="srow">
             <span
@@ -332,9 +352,9 @@
           </div>
         </div>
         <p class="shint drawer__note">
-          Audio is analysed on this device and never recorded or uploaded. Mood is read from tempo, hit density and
-          brightness after 8 seconds. For synced lyrics, name files "Artist - Title" or pick a song and its .lrc file
-          together.
+          Audio is analysed on this device and never recorded or uploaded. Mood starts as a quick read from tempo, hit
+          density and brightness after 8 seconds, then a pre-trained model on your device refines it (if AI mood is on).
+          For synced lyrics, name files "Artist - Title" or pick a song and its .lrc file together.
         </p>
       </aside>
 

@@ -4,7 +4,7 @@
   "private": true,
   "description": "BEAT LAB: an audio-reactive comic-print music visualizer for the browser.",
   "type": "module",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=20.19"
   },
@@ -13,7 +13,7 @@
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . --ignore-pattern public",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",

@@ -15,7 +15,7 @@ BEAT LAB is an audio-reactive visualizer for the browser. It listens to a song, 
 - **Three inputs.** Your own files (MP3, M4A, WAV, OGG, FLAC), the microphone, or a shared browser tab (Chrome and Edge on desktop).
 - **Beat detection** tuned for kicks: spectral flux over 20–280 Hz with an adaptive threshold, gated by kick-band share and a 2-frame power rise. Snares and hi-hats drive their own effects.
 - **Four "dimensions"** that step up with the song's energy (Inkfall → Riso Heat → Pressline → Static Bloom). Each step adds layers rather than turning the same ones up. Changes land on a strong beat.
-- **Mood reading** without a model: tempo, onset density and punch give arousal; spectral tilt gives valence. The mood picks the background, the dancers' style and how lyrics animate.
+- **Mood reading, two ways.** A quick read with no model lands at 8 s (tempo, onset density and punch give arousal; spectral tilt gives valence). Then, on by default, a real pre-trained model runs on your device — Essentia.js MusiCNN mood classifiers in a Web Worker — hears the audio and takes over. A chip shows which read is live ("Mood · AI" or "Mood · quick read"). The mood picks the background, the dancers' style and how lyrics animate.
 - **Synced lyrics** from a `.lrc` file you drop with the song, or looked up on [LRCLIB](https://lrclib.net) by artist and title. Words light up on their own timing or on an eighth-note grid.
 - **Now-playing card** with title, artist, album and embedded cover art (ID3, MP4 and FLAC tags), or a generated comic cover.
 - **Visual sync delay** for Bluetooth headphones: estimated from the output latency the browser reports, adjustable in 20 ms steps.
@@ -44,12 +44,13 @@ Each animation frame the app reads both analysers, turns them into a `Features` 
 
 ## Tech
 
-TypeScript (strict), Vite, Canvas 2D and the Web Audio API. No runtime dependencies besides the self-hosted fonts. Unit tests run on Vitest; end-to-end and beat-sync tests run on Playwright in Chromium.
+TypeScript (strict), Vite, Canvas 2D and the Web Audio API. No npm runtime dependencies besides the self-hosted fonts; the optional on-device mood model self-hosts Essentia.js and TensorFlow.js (loaded in a Web Worker) under `public/models`. Unit tests run on Vitest; end-to-end and beat-sync tests run on Playwright in Chromium.
 
 ```
 src/
   app.ts               controller: sources, frame loop, actions
   audio/               AudioEngine, file / mic / tab sources
+  ai/                  on-device mood model: resampler, mapping, worker manager
   analysis/            features, mood, sync delay, dimension ladder
   lyrics/              LRC parser, LRCLIB client, caption renderer
   meta/                tag parser (ID3, MP4, FLAC), cover art
@@ -87,7 +88,7 @@ The beat-sync tests render each fixture track sample-accurately through an `Offl
 
 ## Deploy
 
-The site is fully static. On **Vercel**: import the repository, keep the detected Vite settings, deploy. `vercel.json` adds caching and security headers (a strict Content-Security-Policy that only allows `lrclib.net` for lyrics); `vite preview` serves the same headers so the end-to-end tests run under them.
+The site is fully static. On **Vercel**: import the repository, keep the detected Vite settings, deploy. `vercel.json` adds caching and security headers: a Content-Security-Policy that keeps `script-src` to `'self'` (no third-party or inline scripts), only allows `lrclib.net` for lyrics, and adds `worker-src`, `'wasm-unsafe-eval'` and `'unsafe-eval'` for the on-device model (Essentia.js is compiled with emscripten embind, which needs `new Function`). `vite preview` serves the same headers so the end-to-end tests run under them.
 
 Any other static host works too: run `npm run build` and publish `dist/`. If the site lives under a sub-path (a GitHub Pages project site, say), build with `npx vite build --base=/beat-lab/`. Serve it over HTTPS, because browsers only allow microphone and tab capture on secure origins.
 
@@ -105,4 +106,16 @@ Where the browser doesn't report output latency, set the sync delay by hand with
 
 All artwork is procedural and original. Fonts: [Archivo](https://github.com/Omnibus-Type/Archivo), [Dela Gothic One](https://fonts.google.com/specimen/Dela+Gothic+One) and [Space Mono](https://fonts.google.com/specimen/Space+Mono), all under the SIL Open Font License. Synced lyrics courtesy of [LRCLIB](https://lrclib.net).
 
-Code released under the [MIT License](LICENSE).
+## Licences
+
+BEAT LAB's code is released under the **GNU Affero General Public License v3.0** (`AGPL-3.0-only`); see [LICENSE](LICENSE). The project is AGPL because the on-device mood model depends on Essentia.js (AGPL-3.0).
+
+The AI mood reading runs entirely in your browser; nothing is fetched from third parties at runtime. It bundles, self-hosted under `public/models`:
+
+- **[Essentia.js](https://mtg.github.io/essentia.js/)** — feature extraction and the TensorFlow.js model add-on, by the **Music Technology Group, Universitat Pompeu Fabra (MTG/UPF)**. Licence: **AGPL-3.0**.
+- Four pre-trained **MusiCNN-MSD mood classifiers** (`mood_happy`, `mood_sad`, `mood_aggressive`, `mood_relaxed`) from the [Essentia models](https://essentia.upf.edu/models.html) collection, by MTG/UPF. Licence: **Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 (CC BY-NC-ND 4.0) — non-commercial use only.** Total model download ≈ **12.8 MB** (four files, ~3.2 MB each), fetched once and cached.
+- **[TensorFlow.js](https://www.tensorflow.org/js)** 3.5.0 (core + WASM backend), by Google. Licence: Apache-2.0.
+
+Attribution and full terms: [`public/models/ATTRIBUTION.md`](public/models/ATTRIBUTION.md) and [`public/models/LICENSE`](public/models/LICENSE).
+
+Because the models are non-commercial, this project as a whole is for non-commercial use.

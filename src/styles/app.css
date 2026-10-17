@@ -606,6 +606,9 @@ input:focus-visible,
   background: var(--ink);
   color: var(--paper);
 }
+.chip-s.is-ai {
+  background: var(--caption);
+}
 .np__bar {
   grid-column: 1 / -1;
   display: flex;

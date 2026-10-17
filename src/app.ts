@@ -1,5 +1,6 @@
 import { AudioEngine } from './audio/engine';
 import { FileSource, LiveSource, LiveSourceError, type LiveKind } from './audio/sources';
+import { AiMood, type AiMoodResult } from './ai/aimood';
 import { FeatureExtractor } from './analysis/features';
 import { DimensionDirector } from './analysis/ladder';
 import { MoodReader } from './analysis/mood';
@@ -51,6 +52,8 @@ export function initialState(): AppState {
     strict: false,
     fx: { ...DEFAULT_FX },
     mood: null,
+    aiActive: false,
+    aiMood: true,
     bpm: 0,
     lyricSrc: '',
     lyricsOnline: true,
@@ -103,6 +106,10 @@ export class App {
   readonly cover = new CoverArt();
   readonly lyrics = new LyricsCaption();
   readonly stats = { beats: 0, strong: 0, snares: 0, intensity: 0 };
+  /** The on-device mood model (lazy worker; silent fallback to the quick read). */
+  readonly ai: AiMood;
+  /** The latest AI read, for the tuning readout. */
+  aiRead: AiMoodResult | null = null;
   /** Called every frame with what the viewer sees (for DOM meters). */
   onFrame: ((a: Analysis) => void) | null = null;
   /** Average frame time in ms. */
@@ -138,6 +145,8 @@ export class App {
       (dim) => this.set({ dim, queued: -1 }),
     );
     this.director.now = this.state.dim;
+    this.ai = new AiMood((r, key) => this.applyAiRead(r, key));
+    this.ai.setEnabled(this.state.aiMood);
     this.store.subscribe((s, prev) => this.onState(s, prev));
   }
 
@@ -193,10 +202,15 @@ export class App {
     cancelAnimationFrame(this.raf);
     this.resizeObs?.disconnect();
     this.stopSources();
+    this.ai.dispose();
     void this.audio.ctx?.close();
   }
 
   private onState(s: AppState, prev: AppState): void {
+    if (s.aiMood !== prev.aiMood) {
+      this.ai.setEnabled(s.aiMood);
+      if (!s.aiMood && s.aiActive) this.set({ aiActive: false });
+    }
     if (s.dim !== prev.dim) this.applyTheme();
     if (!this.cover.hasArt && (s.dim !== prev.dim || s.meta !== prev.meta)) this.drawCover();
     if (s.quality !== prev.quality) {
@@ -259,6 +273,8 @@ export class App {
     this.live = null;
     this.lyricsAbort?.abort();
     this.lyricsAbort = null;
+    this.ai.stop();
+    this.aiRead = null;
   }
 
   /** Common reset when a new song or input starts. */
@@ -269,7 +285,7 @@ export class App {
     this.stats.beats = this.stats.strong = this.stats.snares = 0;
     this.mood.reset(key);
     this.stage.background.setStyle('rays', t);
-    this.set({ mood: null, bpm: 0 });
+    this.set({ mood: null, bpm: 0, aiActive: false });
     if (this.state.auto || this.state.screen === 'cover') this.director.reset(0, t);
     if (!fromCover && this.state.screen === 'cover') this.set({ screen: 'live' });
     this.lastInput = t;
@@ -339,6 +355,7 @@ export class App {
     src.play().catch(() => {
       if (this.file === src) this.set({ playing: false });
     });
+    void this.ai.analyzeFile(ctx, file, key);
     const lrc = this.pendingLrc;
     this.pendingLrc = null;
     const [tags, duration] = await Promise.all([readFileTags(file), src.duration()]);
@@ -435,7 +452,9 @@ export class App {
       requesting: null,
       micDenied: kind === 'mic' ? false : this.state.micDenied,
     });
-    this.beginRun(`${kind}:${Date.now()}`, this.state.screen === 'cover');
+    const key = `${kind}:${Date.now()}`;
+    this.beginRun(key, this.state.screen === 'cover');
+    void this.ai.analyzeLive(ctx, this.audio.input, key);
     this.setMeta(
       kind === 'mic'
         ? { title: 'Microphone', artist: 'Live input', fmt: 'LIVE' }
@@ -699,14 +718,33 @@ export class App {
   private onMood(f: Features, dt: number, t: number): void {
     const dec = this.mood.observe(f, dt, t, this.features.spectrum);
     if (!dec) return;
+    if (this.state.aiActive) {
+      // The model's read is driving the look; keep the tempo fresh but don't override the mood.
+      if (dec.bpm) this.set({ bpm: dec.bpm });
+      return;
+    }
     const look = MOODS[dec.mood];
     const prev = this.state.mood;
     this.stage.background.setStyle(look.bg, t);
     this.lyrics.retime();
     this.set({ mood: dec.mood, bpm: dec.bpm });
     if (dec.first)
-      this.toast(`Mood read: ${look.label}${dec.bpm ? ` · ${dec.bpm} BPM` : ''} · ${look.bgName} background`);
+      this.toast(`Quick mood read: ${look.label}${dec.bpm ? ` · ${dec.bpm} BPM` : ''} · ${look.bgName} background`);
     else if (prev !== dec.mood) this.toast('Mood shifted: ' + look.label);
+  }
+
+  /** A read from the on-device model: feed it in exactly where the quick read goes, and take over. */
+  private applyAiRead(r: AiMoodResult, key: string): void {
+    if (key !== this.songKey || !this.state.aiMood) return;
+    this.aiRead = r;
+    const look = MOODS[r.mood];
+    const prev = this.state.mood;
+    const firstAi = !this.state.aiActive;
+    this.stage.background.setStyle(look.bg, performance.now());
+    this.lyrics.retime();
+    this.set({ mood: r.mood, aiActive: true });
+    if (firstAi) this.toast(`AI mood: ${look.label} · ${look.bgName} background`);
+    else if (prev !== r.mood) this.toast('AI mood shifted: ' + look.label);
   }
 
   private giantWord(s: AppState): string {

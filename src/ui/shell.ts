@@ -169,7 +169,7 @@ export class Shell {
     for (const b of all<HTMLButtonElement>(document, '[data-sync-auto]'))
       b.addEventListener('click', () => app.toggleSyncAuto());
     for (const b of all<HTMLButtonElement>(document, '[data-toggle]')) {
-      const key = b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline';
+      const key = b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood';
       b.addEventListener('click', () => app.set({ [key]: !app.state[key] }));
     }
 
@@ -259,8 +259,7 @@ export class Shell {
       b.classList.toggle('is-off', id === 'tab' && !this.tabOk);
       attr(b, 'aria-pressed', String(isOn));
       const label = b.querySelector('span');
-      if (label)
-        text(label, s.requesting === id ? 'Waiting…' : id === 'file' ? 'File' : id === 'mic' ? 'Mic' : 'Tab');
+      if (label) text(label, s.requesting === id ? 'Waiting…' : id === 'file' ? 'File' : id === 'mic' ? 'Mic' : 'Tab');
     }
 
     // Now playing
@@ -285,6 +284,7 @@ export class Shell {
     if (
       !prev ||
       prev.mood !== s.mood ||
+      prev.aiActive !== s.aiActive ||
       prev.bpm !== s.bpm ||
       prev.lyricSrc !== s.lyricSrc ||
       prev.meta !== s.meta ||
@@ -351,7 +351,7 @@ export class Shell {
       attr(el, 'aria-pressed', String(cur === value));
     }
     for (const b of all<HTMLButtonElement>(document, '[data-toggle]'))
-      attr(b, 'aria-checked', String(s[b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline']));
+      attr(b, 'aria-checked', String(s[b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood']));
     const budget = s.strict ? 1 : 3;
     all(byId('flashMeter'), 'i').forEach(
       (cell, i) => (cell.className = i < budget ? (i < s.flashes ? 'is-on' : '') : 'is-na'),
@@ -419,6 +419,7 @@ export class Shell {
     const chips: [string, string][] = [
       [s.mood ? MOODS[s.mood].label : s.source ? 'Reading mood' : 'No mood yet', s.mood ? 'is-mood' : ''],
     ];
+    if (s.mood && s.source) chips.push([`Mood · ${s.aiActive ? 'AI' : 'quick read'}`, s.aiActive ? 'is-ai' : '']);
     if (s.bpm) chips.push([`${s.bpm} BPM`, '']);
     if (s.source === 'file')
       chips.push([s.lyricSrc ? `Lyrics · ${s.lyricSrc}` : 'No lyrics', s.lyricSrc ? 'is-ink' : '']);
@@ -459,6 +460,10 @@ export class Shell {
     set('T', s.bpm ? `${s.bpm} BPM` : P?.clockBpm ? `~${P.clockBpm} BPM (clock)` : '—');
     set('A', P?.decided ? `${P.A.toFixed(2)} · punch ${P.punchV.toFixed(2)}` : '—');
     set('V', P?.decided ? `${P.V.toFixed(2)} (${P.tiltDb.toFixed(0)} dB)` : '—');
+    const ai = app.aiRead;
+    set('aiA', ai ? ai.arousal.toFixed(2) : '—');
+    set('aiV', ai ? ai.valence.toFixed(2) : '—');
+    set('aiT', ai ? `${Math.round(ai.inferenceMs)} ms` : '—');
     set('Y', s.lyricSrc || 'none');
     set('D', `${app.syncDelay()} ms${s.syncMs === null ? ' (auto)' : ''}`);
     set('O', app.audio.ctx ? `${Math.round(app.audio.latencyMs())} ms` : '—');

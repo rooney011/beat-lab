@@ -33,20 +33,14 @@ export const CARDS: Record<CardId, CardDef> = {
     title: 'Let it hear the room',
     body: ['Beat Lab listens through your mic and reacts to whatever is playing near you.'],
     fine: 'Audio is analysed on this device and never recorded.',
-    actions: [
-      { label: 'Allow mic', primary: true, run: (app) => void app.startLive('mic') },
-      openFile('Open a file'),
-    ],
+    actions: [{ label: 'Allow mic', primary: true, run: (app) => void app.startLive('mic') }, openFile('Open a file')],
   },
   'perm-tab': {
     kick: 'Permission · Tab',
     title: 'Pick a tab with music',
     body: ['Choose the tab that is playing and keep “Share tab audio” switched on.'],
     fine: 'Audio is analysed on this device and never recorded.',
-    actions: [
-      { label: 'Choose tab', primary: true, run: (app) => void app.startLive('tab') },
-      openFile('Open a file'),
-    ],
+    actions: [{ label: 'Choose tab', primary: true, run: (app) => void app.startLive('tab') }, openFile('Open a file')],
   },
   'err-mic-denied': {
     kick: 'Error · mic-denied',

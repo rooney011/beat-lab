@@ -98,6 +98,10 @@ export interface AppState {
   strict: boolean;
   fx: FxFlags;
   mood: MoodId | null;
+  /** The on-device model's read has taken over from the quick rule-based read. */
+  aiActive: boolean;
+  /** Setting: use the on-device AI mood model (falls back to the quick read if off or unavailable). */
+  aiMood: boolean;
   bpm: number;
   lyricSrc: string;
   lyricsOnline: boolean;

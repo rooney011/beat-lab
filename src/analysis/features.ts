@@ -266,7 +266,8 @@ export class FeatureExtractor {
 
     // Intensity: long-window loudness, rescaled against this song's own 10th–95th percentile.
     const rmsN = Math.max(0, Math.min(1, (db + 42) / 36));
-    const e = 0.6 * rmsN + 0.25 * Math.min(1, (rb[3] + rb[4]) * 1.6) + 0.15 * Math.min(1, (rb[5] + rb[6] + rb[7]) * 2.2);
+    const e =
+      0.6 * rmsN + 0.25 * Math.min(1, (rb[3] + rb[4]) * 1.6) + 0.15 * Math.min(1, (rb[5] + rb[6] + rb[7]) * 2.2);
     this.lvl += (e - this.lvl) * (1 - Math.exp(-dt / 1.5));
     if (t - this.histT > 250) {
       this.histT = t;

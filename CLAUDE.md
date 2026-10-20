@@ -6,7 +6,7 @@ Static TypeScript site (Vite, Canvas 2D, Web Audio). No framework and no npm run
 
 - `npm run dev` — dev server on :5173. Also serves the dev-only **Scene Lab** at `/tools/scene-lab/` for previewing background scenes; `vite build` excludes it.
 - `npm run check` — typecheck, lint, unit tests (run before every commit)
-- `npm run test:e2e` — builds, serves the production build on :4173 and runs Playwright (UI flows + beat-sync regression). Set `CHROMIUM_PATH` to use a preinstalled Chromium.
+- `npm run test:e2e` — builds, serves the production build on :4173 and runs Playwright (UI flows + beat-sync regression). Set `CHROMIUM_PATH` to use a preinstalled Chromium. If the cached Playwright browser doesn't match the pinned version (as in the Claude Code sandbox), set `CHROMIUM_PATH` to the cached Chromium instead of installing or downgrading. CI installs the pinned browser itself, so treat CI as the real e2e check.
 - `npm run format` — Prettier
 
 ## Architecture

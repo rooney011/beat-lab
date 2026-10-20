@@ -78,7 +78,7 @@ export interface Toast {
 }
 
 export interface AppState {
-  screen: 'cover' | 'live';
+  screen: 'cover' | 'live' | 'library';
   leaving: boolean;
   source: SourceId | null;
   playing: boolean;

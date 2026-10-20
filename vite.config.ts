@@ -29,6 +29,9 @@ const perPathHeaders = {
 
 export default defineConfig({
   plugins: [perPathHeaders],
+  // Preact JSX for the library/player screens compiles to `preact/jsx-runtime` h() calls — no
+  // `eval`, so it stays within the page CSP's `script-src 'self'`. Vite's esbuild transform reads
+  // the `jsx`/`jsxImportSource` settings from tsconfig.json; only .tsx/.jsx files are affected.
   build: {
     target: 'es2022',
     sourcemap: true,

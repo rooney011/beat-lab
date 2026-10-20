@@ -1,6 +1,6 @@
 # BEAT LAB — notes for coding agents
 
-Static TypeScript site (Vite, Canvas 2D, Web Audio). No framework and no npm runtime deps; the optional on-device mood model self-hosts Essentia.js + TensorFlow.js under `public/models` and runs in a Web Worker.
+Static TypeScript site (Vite, Canvas 2D, Web Audio). The stage/visualizer is framework-free; the music **library/player** screens (started in milestone 1.1, see `docs/ROADMAP.md`) use Preact + `@preact/signals`, with `idb` for IndexedDB and `music-metadata` for tag/cover reading. The optional on-device mood model self-hosts Essentia.js + TensorFlow.js under `public/models` and runs in a Web Worker.
 
 ## Commands
 
@@ -16,6 +16,7 @@ Static TypeScript site (Vite, Canvas 2D, Web Audio). No framework and no npm run
 - Layers in `src/render/layers/` draw through a `DrawContext` and keep their own short-lived state.
 - The background is `src/render/scenes/`: a `SceneDirector` picks a seeded scene set per mood (a song starts on the listening globe until the mood is read, then crossfades). `Stage` owns a `LookTracker` (per-song energy/brightness/tempo/cover palette) and the director; `App` drives them via `stage.director.setSong/setMood` and `stage.tracker.setMood/setPalette`. Scenes take the final background alpha and must honour calm mode (`docs/scenes.md`).
 - `src/ai/` is the on-device mood model: a lazy Web Worker (`public/mood-worker.js`) runs Essentia.js + TF.js off the render thread. `MoodReader` gives the instant quick read at 8 s; the model's read takes over when it arrives (`App.applyAiRead`). It is best-effort — any load/decode failure falls back silently to the quick read.
+- `src/library/` is the music library (milestone 1.1): `db.ts` (IndexedDB via `idb`), `scan.ts` (folder walk + rescan diff — pure, so the unit tests drive it with a fake directory handle), `files.ts` (OPFS imports + content hashing + linked-folder access), `meta.ts` (lazy `music-metadata`), `thumb.ts` (256 px cover), `store.ts` (Preact signals + import/scan/play actions), and `ui/LibraryApp.tsx` (Preact). The shell mounts it lazily into `#library-root` and plays a chosen track through `App.playLibraryFile` (the existing single-file path; the queue/deck engine is milestone 1.2). `music-metadata` runs on the **main thread**, not in a worker: the one existing worker is classic/IIFE, and music-metadata's dynamic-import code-splitting can't bundle into an IIFE worker without changing the global `worker.format` that worker relies on. The scan loop yields between files to stay responsive.
 
 ## Rules
 

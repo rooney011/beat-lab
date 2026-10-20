@@ -154,6 +154,31 @@ test("the page CSP has no eval; the model's permission is worker-scoped only", a
   expect(pageCsp).not.toContain('unsafe-eval');
 });
 
+test('the background starts on the listening globe, then moves to the mood scene', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'covered on desktop');
+  await page.goto('/?debug');
+  await page.locator('#file').setInputFiles(fixture('audio/hype-128.flac'));
+  await expect.poll(() => read(page, 'a.state.screen')).toBe('live');
+  const stage = page.locator('#stage');
+  // A fresh song listens on the globe until the mood lands…
+  await expect(stage).toHaveAttribute('data-scene', 'globe');
+  // …then the read (≈8 s) crossfades into one of the mood's scenes.
+  await expect.poll(() => stage.getAttribute('data-scene'), { timeout: 30_000 }).not.toBe('globe');
+});
+
+test('the listening orb shows in the chip while reading, then goes away once the mood is set', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === 'phone', 'covered on desktop');
+  await page.goto('/?debug');
+  await page.locator('#file').setInputFiles(fixture('audio/hype-128.flac'));
+  await expect.poll(() => read(page, 'a.state.screen')).toBe('live');
+  const orb = page.locator('#npChips canvas.listening-orb');
+  await expect(orb).toBeVisible();
+  await expect.poll(() => read(page, 'a.state.mood'), { timeout: 30_000 }).not.toBeNull();
+  await expect(orb).toHaveCount(0);
+});
+
 test('on-device model: the AI mood read takes over for a file', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'the model is heavy; covered on desktop');
   await page.goto('/?debug');

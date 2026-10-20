@@ -4,7 +4,6 @@ import type { SongProfile } from '../analysis/mood';
 import type { Analysis, AppState, Features, MoodId, Quality } from '../types';
 import { easeInOutCubic, slam } from '../util/math';
 import type { DrawContext } from './context';
-import { Background } from './layers/background';
 import { Burst } from './layers/burst';
 import { Crew } from './layers/crew';
 import { Hits, type StageBox } from './layers/hits';
@@ -14,6 +13,7 @@ import { drawTowers } from './layers/towers';
 import { GiantWord } from './layers/word';
 import { Patterns, makeTextures } from './patterns';
 import { FlashBudget, LuminanceClamp } from './safety';
+import { LookTracker, SceneDirector, tintDim } from './scenes';
 
 export interface StageFrame {
   a: Analysis;
@@ -70,10 +70,16 @@ export class Stage {
   private glitchFrames = 0;
   private readonly eased: Eased = { bg: 1, word: 1, towers: 1 };
   private readonly swapCache = new Map<string, Dim>();
+  /** Per (dimension, swap, cover palette) tinted dimension, so nothing is allocated per frame. */
+  private readonly tintCache = new Map<string, Dim>();
+  private sceneAttr = '';
   /** Time of the last beat the viewer saw (drives the strip LED). */
   lastBeatSeen = -9999;
 
-  readonly background = new Background();
+  /** Keeps the song's look current (mood energy/brightness, tempo, cover palette). */
+  readonly tracker = new LookTracker();
+  /** Picks and draws the background scene for the song's mood and dimension. */
+  readonly director = new SceneDirector(this.tracker.look);
   readonly word = new GiantWord();
   readonly rings = new Rings();
   readonly burst = new Burst();
@@ -133,7 +139,6 @@ export class Stage {
       if (!calm) {
         this.camKick = f.strong ? 1 : 0.55;
         this.camDir = Math.random() * Math.PI * 2;
-        this.background.kick();
         if (LY.rings) this.rings.spawn(t, f.strong);
         if (LY.fx && s.fx.stamps && tr > 0.15 && (f.strong || (f.intensity > 0.6 && Math.random() < 0.35)))
           this.hits.spawnStamp(t, box);
@@ -177,6 +182,21 @@ export class Stage {
     return D;
   }
 
+  /** The frame's dimension: plates swapped for this song, then tinted toward the cover palette. */
+  private frameDim(dim: number, profile: SongProfile | null): Dim {
+    const base = this.dimFor(dim, profile);
+    const p = this.tracker.look.palette;
+    if (!p) return base;
+    const key = `${dim}:${profile?.swap ? 1 : 0}:${p.inks.join()}|${p.ray}|${p.stage}`;
+    let D = this.tintCache.get(key);
+    if (!D) {
+      // Inkfall stays mostly monochrome; the colour dimensions take more of the cover's inks.
+      D = tintDim(base, p, dim === 0 ? 0.35 : 0.6);
+      this.tintCache.set(key, D);
+    }
+    return D;
+  }
+
   render(fr: StageFrame): void {
     const cv = this.canvas;
     const ctx = this.ctx;
@@ -187,7 +207,8 @@ export class Stage {
     const W = cv.width;
     const H = cv.height;
     const k = this.k;
-    const D = this.dimFor(dim, fr.profile);
+    this.tracker.update(dt);
+    const D = this.frameDim(dim, fr.profile);
     const dose = s.dose / 100;
     const tr = Math.pow(dose, 1.4) * 1.25;
     const calm = s.reduce;
@@ -253,12 +274,24 @@ export class Stage {
     this.eased.bg += (budget.bg - this.eased.bg) * ea;
     this.eased.word += (budget.word - this.eased.word) * ea;
     this.eased.towers += (budget.towers - this.eased.towers) * ea;
-    this.background.draw(dc, {
-      kick: this.kick,
-      alpha: this.eased.bg,
-      seed: fr.profile ?? { angle: 0, rayExtra: 0 },
-      rings: this.rings.list,
-    });
+    this.director.setDim(dim, t);
+    // The scene gets the final background strength (per-dimension base × beat breathing × budget);
+    // it doesn't compute it. Same formula the old Background used.
+    const bgAlpha = [0.14, 0.22, 0.24, 0.18][dim] * (0.75 + 0.5 * f.pulse) * this.eased.bg;
+    this.director.draw(
+      {
+        dc,
+        alpha: bgAlpha,
+        kick: this.kick,
+        rings: this.rings.list,
+        flash: () => !calm && this.flashes.take(t, s.strict),
+      },
+      t,
+    );
+    if (this.director.current !== this.sceneAttr) {
+      this.sceneAttr = this.director.current;
+      this.canvas.dataset.scene = this.sceneAttr;
+    }
     if (this.eased.word > 0.01) this.word.draw(dc, fr.word, this.eased.word);
     if (this.eased.towers > 0.01) drawTowers(dc, this.eased.towers);
     drawString(dc, fr.envelope);

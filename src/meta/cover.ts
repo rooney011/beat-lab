@@ -1,6 +1,7 @@
 import type { Dim } from '../config/dims';
 import { INK, PAPER } from '../config/dims';
 import { FONT_DISPLAY, FONT_MONO } from '../render/fonts';
+import { extractPalette, pixelsOf, type CoverPalette } from '../render/scenes';
 import { hash, seededRandom } from '../util/rand';
 import type { Picture } from './tags';
 
@@ -14,6 +15,8 @@ export class CoverArt {
   private bitmap: ImageBitmap | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private token = 0;
+  /** Inks pulled from the decoded embedded art, or null (greyscale art, or a generated cover). */
+  palette: CoverPalette | null = null;
 
   attach(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
@@ -29,6 +32,7 @@ export class CoverArt {
     this.token++;
     this.bitmap?.close();
     this.bitmap = null;
+    this.palette = null;
   }
 
   /** Decode embedded art. Resolves true when it was decoded and is still current. */
@@ -43,6 +47,9 @@ export class CoverArt {
       }
       this.bitmap?.close();
       this.bitmap = bmp;
+      // Pull the cover's inks now, while the bitmap is fresh. Never done for generated covers.
+      const px = pixelsOf(bmp);
+      this.palette = px ? extractPalette(px) : null;
       return true;
     } catch {
       return false;

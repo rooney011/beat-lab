@@ -51,6 +51,11 @@
           <button id="coverTab" class="btn" type="button">
             <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 3h9v11H3z"></path></svg>Share a tab
           </button>
+          <button id="coverLibrary" class="btn" type="button">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"></path></svg
+            >Library
+          </button>
           <button id="coverCalm" class="switch" type="button" role="switch" aria-checked="false">
             <span class="switch__t" aria-hidden="true"></span><span class="label">Calm mode</span>
           </button>
@@ -61,6 +66,8 @@
           <a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a>.
         </p>
       </section>
+
+      <section id="library-root" class="library-root" aria-label="Library" hidden></section>
 
       <div class="mast">
         <div class="mast__in">
@@ -82,6 +89,11 @@
           >
             <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 20h18M6 16v-5M10 16V6M14 16v-8M18 16v-3"></path>
+            </svg>
+          </button>
+          <button id="btnLibrary" class="btn btn--icon" type="button" aria-label="Library">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"></path>
             </svg>
           </button>
           <button id="btnSettings" class="btn btn--icon" type="button" aria-label="Settings">

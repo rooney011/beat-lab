@@ -1376,3 +1376,248 @@ input:focus-visible,
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------- library (milestone 1.1) */
+
+.library-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow-y: auto;
+  background: var(--stage, #0b0a10);
+  color: #f4f1ea;
+  -webkit-overflow-scrolling: touch;
+}
+.library-root[hidden] {
+  display: none;
+}
+.lib {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px clamp(12px, 4vw, 40px) 64px;
+}
+.lib-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 0 12px;
+  background: linear-gradient(var(--stage, #0b0a10) 70%, transparent);
+}
+.lib-head__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lib-head__title {
+  margin: 0;
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
+}
+.lib-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lib-import {
+  cursor: pointer;
+}
+.lib-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.12);
+}
+.lib-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  padding: 8px 14px;
+  cursor: pointer;
+  opacity: 0.6;
+  border-bottom: 2px solid transparent;
+}
+.lib-tab.is-on {
+  opacity: 1;
+  border-bottom-color: var(--accent, #2f6bff);
+}
+.lib-search {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 14px;
+  font: inherit;
+  color: inherit;
+  background: rgb(255 255 255 / 0.06);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 8px;
+}
+.lib-note {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+.lib-folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lib-scan {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+.lib-main {
+  margin-top: 16px;
+}
+.lib-empty {
+  opacity: 0.6;
+  padding: 40px 0;
+  text-align: center;
+}
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: clamp(10px, 2vw, 20px);
+}
+.lib-album {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lib-album__title {
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-album__artist {
+  font-size: 0.85rem;
+  opacity: 0.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-cover {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 0.08);
+  flex: none;
+}
+.lib-cover__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.lib-cover__ph {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.lib-sort {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.lib-sort .is-on {
+  opacity: 1;
+  text-decoration: underline;
+}
+.lib-list {
+  display: flex;
+  flex-direction: column;
+}
+.lib-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.lib-row:hover,
+.lib-row:focus-visible {
+  background: rgb(255 255 255 / 0.07);
+  outline: none;
+}
+.lib-row__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.lib-row__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-row__sub {
+  font-size: 0.82rem;
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-row__time {
+  opacity: 0.6;
+  font-size: 0.82rem;
+}
+.lib-row__del {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.lib-row:hover .lib-row__del,
+.lib-row:focus-within .lib-row__del {
+  opacity: 0.5;
+}
+.lib-row__del:hover {
+  opacity: 1;
+}
+.lib-detail__head {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+.lib-detail__title {
+  margin: 0;
+}
+.lib-detail__artist {
+  margin: 4px 0 12px;
+  opacity: 0.7;
+}
+.lib-back {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 8px 0;
+}
+.lib-artist__name {
+  margin: 20px 0 10px;
+  font-size: 1.1rem;
+}

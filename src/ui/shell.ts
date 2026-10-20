@@ -61,6 +61,7 @@ export class Shell {
   /** Where focus was before a dialog or the drawer opened, so it can go back there. */
   private returnFocus: HTMLElement | null = null;
   private scrubbing = false;
+  private libMounted = false;
 
   constructor(private readonly app: App) {
     this.build();
@@ -155,6 +156,8 @@ export class Shell {
     on('btnClean', () => app.set({ clean: true }));
     on('btnUnclean', () => app.set({ clean: false }));
     on('btnFull', () => app.fullscreen());
+    on('coverLibrary', () => app.openLibrary());
+    on('btnLibrary', () => app.openLibrary());
     on('btnPlay', () => app.togglePlay());
     on('btnAuto', () => app.toggleAuto());
     on('btnCalm', () => app.toggleCalm());
@@ -227,6 +230,12 @@ export class Shell {
     root.classList.toggle('is-clean', s.clean && !cover);
     root.classList.toggle('is-calm', s.reduce);
     root.classList.toggle('is-drag', s.dragging);
+
+    // Library (full-screen overlay; the Preact app mounts lazily on first open)
+    const library = s.screen === 'library';
+    root.classList.toggle('is-library', library);
+    byId('library-root').hidden = !library;
+    if (library && !this.libMounted) void this.ensureLibrary();
 
     // Cover
     const coverEl = byId('cover');
@@ -412,6 +421,22 @@ export class Shell {
     } else if (!e.shiftKey && document.activeElement === last) {
       e.preventDefault();
       first.focus();
+    }
+  }
+
+  /** Code-split the library screen: its Preact + music-metadata chunk loads only on first open. */
+  private async ensureLibrary(): Promise<void> {
+    if (this.libMounted) return;
+    this.libMounted = true;
+    try {
+      const { mountLibrary } = await import('../library/mount');
+      mountLibrary(byId('library-root'), {
+        play: (file) => this.app.playLibraryFile(file),
+        close: () => this.app.set({ screen: this.app.state.source ? 'live' : 'cover' }),
+      });
+    } catch (err) {
+      this.libMounted = false;
+      console.error(err);
     }
   }
 

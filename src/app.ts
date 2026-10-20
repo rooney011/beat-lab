@@ -306,6 +306,19 @@ export class App {
     this.el.fileInput.click();
   }
 
+  /** Open the library screen (lazily mounted by the shell). */
+  openLibrary(): void {
+    this.poke();
+    this.set({ screen: 'library', drawer: false, card: null, clean: false });
+  }
+
+  /** Play a track chosen from the library: reuse the single-file pipeline and leave the library. */
+  playLibraryFile(file: File): void {
+    this.ensureAudio();
+    this.set({ screen: 'live' });
+    void this.loadFile(file);
+  }
+
   /** Files from the picker or a drop: one audio file, optionally with its .lrc. */
   takeFiles(list: FileList | File[]): void {
     const files = Array.from(list);
@@ -815,6 +828,7 @@ export class App {
     if (e.key === 'Escape') {
       if (s.card) this.set({ card: null });
       else if (s.drawer) this.set({ drawer: false });
+      else if (s.screen === 'library') this.set({ screen: s.source ? 'live' : 'cover' });
       else if (s.clean) this.set({ clean: false });
       return;
     }

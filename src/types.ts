@@ -1,7 +1,6 @@
 export type SourceId = 'file' | 'mic' | 'tab';
 export type MoodId = 'hype' | 'grit' | 'dreamy' | 'brooding';
 export type Layout = 'desktop' | 'tablet' | 'mobile';
-export type BgStyle = 'rays' | 'chevrons' | 'stripes' | 'rings' | 'grid';
 export type LyricStyle = 'stamp' | 'shake' | 'float' | 'type';
 export type MotionPref = 'system' | 'on' | 'off';
 export type Quality = 'auto' | 'high' | 'low';
@@ -102,6 +101,8 @@ export interface AppState {
   aiActive: boolean;
   /** Setting: use the on-device AI mood model (falls back to the quick read if off or unavailable). */
   aiMood: boolean;
+  /** Setting: tint the dimension's ink plates toward the embedded cover art's colours. */
+  coverColours: boolean;
   bpm: number;
   lyricSrc: string;
   lyricsOnline: boolean;

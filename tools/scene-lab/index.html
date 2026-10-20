@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Scene Lab · BEAT LAB</title>
+    <link rel="stylesheet" href="./lab.css" />
+  </head>
+  <body>
+    <main class="lab">
+      <section class="view" aria-label="Scene preview">
+        <canvas id="stage" aria-label="Animated background scene"></canvas>
+        <div class="brand">
+          <h1>SCENE LAB</h1>
+          <span>BEAT LAB backgrounds</span>
+        </div>
+        <div class="now" aria-live="polite">
+          <span class="reading" id="reading" hidden><span id="orbSlot"></span>Reading the mood…</span>
+          <strong id="nowScene"></strong>
+          <span class="meta" id="nowMood"></span>
+          <span class="set" id="nowSet"></span>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <section>
+          <h2>
+            Scenes
+            <button type="button" class="switch" id="auto" role="switch" aria-checked="true">Auto</button>
+          </h2>
+          <div class="chips" id="moods" role="group" aria-label="Mood"></div>
+          <ul class="scene-list" id="scenes"></ul>
+          <p class="hint">
+            Auto plays the song's set: one scene for Inkfall and Riso Heat, the next for Pressline, the last for Static
+            Bloom. Pick a scene to hold it.
+          </p>
+        </section>
+
+        <section>
+          <h2>Song</h2>
+          <div class="chips" id="dims" role="group" aria-label="Dimension"></div>
+          <label class="slider">
+            Energy
+            <input id="energy" type="range" min="0" max="1" step="0.01" />
+            <output id="energyVal"></output>
+          </label>
+          <label class="slider">
+            Brightness
+            <input id="brightness" type="range" min="0" max="1" step="0.01" />
+            <output id="brightnessVal"></output>
+          </label>
+          <label class="slider">
+            Tempo
+            <input id="bpm" type="range" min="70" max="180" step="1" />
+            <output id="bpmVal"></output>
+          </label>
+          <label class="slider">
+            Dose
+            <input id="dose" type="range" min="0" max="1" step="0.01" />
+            <output id="doseVal"></output>
+          </label>
+          <label class="slider">
+            Background
+            <input id="strength" type="range" min="0.5" max="2" step="0.1" />
+            <output id="strengthVal"></output>
+          </label>
+          <div class="row">
+            <button type="button" class="switch" id="calm" role="switch" aria-checked="false">Calm</button>
+            <button type="button" class="switch" id="layers" role="switch" aria-checked="true">Stage layers</button>
+            <button type="button" class="btn primary" id="newSong">New song</button>
+          </div>
+          <p class="hint">
+            New song reseeds every layout and listens on the globe for 6 seconds, as the app does while it reads the
+            mood, then moves into the mood's set.
+          </p>
+        </section>
+
+        <section>
+          <h2>Cover colours</h2>
+          <div class="covers" id="covers">
+            <label class="cover upload" title="Use your own image">
+              <input id="coverFile" type="file" accept="image/*" aria-label="Use your own cover image" />
+              <span aria-hidden="true">+</span>
+            </label>
+          </div>
+          <div class="inks" id="inks"></div>
+          <p class="hint" id="inksLabel"></p>
+        </section>
+
+        <section>
+          <h2>Audio</h2>
+          <div class="chips" role="group" aria-label="Audio source">
+            <button type="button" id="srcSim">Simulated beat</button>
+            <button type="button" id="srcFile">Play a song</button>
+            <button type="button" class="btn" id="playPause">Play / pause</button>
+          </div>
+          <input id="songFile" type="file" accept="audio/*" hidden />
+          <p class="hint" id="songStatus">Simulated beat at the tempo above.</p>
+        </section>
+
+        <p class="perf" id="perf"></p>
+      </aside>
+    </main>
+    <script type="module" src="./lab.ts"></script>
+  </body>
+</html>

@@ -78,6 +78,9 @@ npx playwright install chromium
 npm run test:e2e     # builds the site, then runs UI and beat-sync tests
 ```
 
+`npm run dev` also serves the **Scene Lab** at <http://localhost:5173/tools/scene-lab/>, a dev-only page for previewing every background scene against a simulated beat or a real song.
+It is not part of `vite build` — see [`docs/scenes.md`](docs/scenes.md) for how scenes are chosen.
+
 The beat-sync tests render each fixture track sample-accurately through an `OfflineAudioContext` and score the real analysis code against the known kick grid:
 
 | Track     | Kicks caught | Mean latency | Extra beats | Dancer clock error |
@@ -104,7 +107,7 @@ Where the browser doesn't report output latency, set the sync delay by hand with
 
 ## Credits
 
-All artwork is procedural and original. Fonts: [Archivo](https://github.com/Omnibus-Type/Archivo), [Dela Gothic One](https://fonts.google.com/specimen/Dela+Gothic+One) and [Space Mono](https://fonts.google.com/specimen/Space+Mono), all under the SIL Open Font License. Synced lyrics courtesy of [LRCLIB](https://lrclib.net).
+All artwork is procedural and original. The listening globe is inspired by [thinking-orbs](https://github.com/RareFormLabs/thinking-orbs) by Jakub Antalik (MIT); no code was copied, so no licence file is needed. Fonts: [Archivo](https://github.com/Omnibus-Type/Archivo), [Dela Gothic One](https://fonts.google.com/specimen/Dela+Gothic+One) and [Space Mono](https://fonts.google.com/specimen/Space+Mono), all under the SIL Open Font License. Synced lyrics courtesy of [LRCLIB](https://lrclib.net).
 
 ## Licences
 

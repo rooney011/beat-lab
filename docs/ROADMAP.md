@@ -149,10 +149,10 @@ Phase 1 is big, so it's four milestones. Ship each one separately.
 
 **Done when:**
 
-- [ ] A 2,000-track folder imports on Chrome desktop in under 2 minutes, and the library is usable during the scan.
-- [ ] Closing and reopening the browser keeps the library. The reconnect button restores folder access.
-- [ ] On an iPhone, 20 imported songs survive a reload.
-- [ ] All the tests above pass in CI.
+- [ ] A 2,000-track folder imports on Chrome desktop in under 2 minutes, and the library is usable during the scan. _(pending a large-library benchmark; small imports are instant and the scan yields between files)_
+- [x] Closing and reopening the browser keeps the library. The reconnect button restores folder access.
+- [x] On an iPhone, 20 imported songs survive a reload.
+- [x] All the tests above pass in CI.
 
 ### 1.2 Playback engine
 

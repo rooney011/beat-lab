@@ -609,6 +609,10 @@ input:focus-visible,
 .chip-s.is-ai {
   background: var(--caption);
 }
+.listening-orb {
+  vertical-align: -2px;
+  margin-right: 5px;
+}
 .np__bar {
   grid-column: 1 / -1;
   display: flex;

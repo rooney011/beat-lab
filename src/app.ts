@@ -13,6 +13,7 @@ import { findSyncedLyrics } from './lyrics/lrclib';
 import { CoverArt } from './meta/cover';
 import { guessFromFilename, readFileTags, type Tags } from './meta/tags';
 import { loadCanvasFonts } from './render/fonts';
+import { sceneDef } from './render/scenes';
 import { Stage } from './render/stage';
 import { BandStrip } from './render/strip';
 import { DEFAULT_FX, loadSettings, sanitize, saveSettings, settingsChanged } from './settings';
@@ -24,12 +25,24 @@ import type {
   Features,
   FxFlags,
   Layout,
+  MoodId,
   MotionPref,
   Quality,
   SourceId,
   TrackMeta,
 } from './types';
 import { formatTime } from './util/math';
+
+/**
+ * Per-mood (energy, brightness) the background scenes glide to when only the quick rule-based read
+ * is available. The AI path supplies real arousal/valence instead.
+ */
+const MOOD_AV: Record<MoodId, [number, number]> = {
+  hype: [0.85, 0.7],
+  grit: [0.7, 0.35],
+  dreamy: [0.3, 0.75],
+  brooding: [0.35, 0.2],
+};
 
 export function initialState(): AppState {
   return {
@@ -54,6 +67,7 @@ export function initialState(): AppState {
     mood: null,
     aiActive: false,
     aiMood: true,
+    coverColours: true,
     bpm: 0,
     lyricSrc: '',
     lyricsOnline: true,
@@ -211,6 +225,7 @@ export class App {
       this.ai.setEnabled(s.aiMood);
       if (!s.aiMood && s.aiActive) this.set({ aiActive: false });
     }
+    if (s.coverColours !== prev.coverColours) this.stage.tracker.setPalette(s.coverColours ? this.cover.palette : null);
     if (s.dim !== prev.dim) this.applyTheme();
     if (!this.cover.hasArt && (s.dim !== prev.dim || s.meta !== prev.meta)) this.drawCover();
     if (s.quality !== prev.quality) {
@@ -284,7 +299,8 @@ export class App {
     this.features.newSong();
     this.stats.beats = this.stats.strong = this.stats.snares = 0;
     this.mood.reset(key);
-    this.stage.background.setStyle('rays', t);
+    // Back to the listening globe with fresh, seeded layouts until the mood is read.
+    this.stage.director.setSong(this.stage.tracker.reset(key), t);
     this.set({ mood: null, bpm: 0, aiActive: false });
     if (this.state.auto || this.state.screen === 'cover') this.director.reset(0, t);
     if (!fromCover && this.state.screen === 'cover') this.set({ screen: 'live' });
@@ -365,6 +381,8 @@ export class App {
     void this.cover.load(tags.pic).then((ok) => {
       if (ok && this.songKey === key) {
         this.set({ hasArt: true });
+        // Tint the dimension toward the cover's inks (unless the viewer turned that off).
+        this.stage.tracker.setPalette(this.state.coverColours ? this.cover.palette : null);
         this.drawCover();
       }
     });
@@ -725,12 +743,19 @@ export class App {
     }
     const look = MOODS[dec.mood];
     const prev = this.state.mood;
-    this.stage.background.setStyle(look.bg, t);
+    this.feedLook(dec.mood, dec.bpm || this.mood.profile?.clockBpm || 0, t);
     this.lyrics.retime();
     this.set({ mood: dec.mood, bpm: dec.bpm });
-    if (dec.first)
-      this.toast(`Quick mood read: ${look.label}${dec.bpm ? ` · ${dec.bpm} BPM` : ''} · ${look.bgName} background`);
+    const bg = sceneDef(this.stage.director.current).name;
+    if (dec.first) this.toast(`Quick mood read: ${look.label}${dec.bpm ? ` · ${dec.bpm} BPM` : ''} · ${bg} background`);
     else if (prev !== dec.mood) this.toast('Mood shifted: ' + look.label);
+  }
+
+  /** Point the background at a mood: pick its scene set and glide the look's energy/brightness. */
+  private feedLook(mood: MoodId, bpm: number, t: number, av?: { arousal: number; valence: number }): void {
+    const [energy, brightness] = av ? [av.arousal, av.valence] : MOOD_AV[mood];
+    this.stage.tracker.setMood(energy, brightness, bpm);
+    this.stage.director.setMood(mood, t);
   }
 
   /** A read from the on-device model: feed it in exactly where the quick read goes, and take over. */
@@ -740,10 +765,16 @@ export class App {
     const look = MOODS[r.mood];
     const prev = this.state.mood;
     const firstAi = !this.state.aiActive;
-    this.stage.background.setStyle(look.bg, performance.now());
+    const t = performance.now();
+    // The model gives real arousal/valence: feed them straight to the look.
+    this.feedLook(r.mood, this.state.bpm || this.mood.profile?.clockBpm || 0, t, {
+      arousal: r.arousal,
+      valence: r.valence,
+    });
     this.lyrics.retime();
     this.set({ mood: r.mood, aiActive: true });
-    if (firstAi) this.toast(`AI mood: ${look.label} · ${look.bgName} background`);
+    const bg = sceneDef(this.stage.director.current).name;
+    if (firstAi) this.toast(`AI mood: ${look.label} · ${bg} background`);
     else if (prev !== r.mood) this.toast('AI mood shifted: ' + look.label);
   }
 

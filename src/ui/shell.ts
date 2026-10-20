@@ -3,6 +3,7 @@ import { LiveSource } from '../audio/sources';
 import { DIMS } from '../config/dims';
 import { MOODS } from '../config/moods';
 import type { Analysis, AppState, FxFlags, MotionPref, Quality, SourceId } from '../types';
+import { ListeningOrb } from './listening-orb';
 import { renderCard } from './cards';
 import { all, attr, byId, h, ICONS, text } from './dom';
 
@@ -61,6 +62,11 @@ export class Shell {
   /** Where focus was before a dialog or the drawer opened, so it can go back there. */
   private returnFocus: HTMLElement | null = null;
   private scrubbing = false;
+  /** The chip-sized listening globe, shown in the "Reading mood" chip. */
+  private readonly orb = new ListeningOrb(12);
+  private orbShowing = false;
+  /** The chip's text colour, read when the chips render (not every frame). */
+  private orbColor = '#F3EEE3';
 
   constructor(private readonly app: App) {
     this.build();
@@ -169,7 +175,7 @@ export class Shell {
     for (const b of all<HTMLButtonElement>(document, '[data-sync-auto]'))
       b.addEventListener('click', () => app.toggleSyncAuto());
     for (const b of all<HTMLButtonElement>(document, '[data-toggle]')) {
-      const key = b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood';
+      const key = b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood' | 'coverColours';
       b.addEventListener('click', () => app.set({ [key]: !app.state[key] }));
     }
 
@@ -351,7 +357,11 @@ export class Shell {
       attr(el, 'aria-pressed', String(cur === value));
     }
     for (const b of all<HTMLButtonElement>(document, '[data-toggle]'))
-      attr(b, 'aria-checked', String(s[b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood']));
+      attr(
+        b,
+        'aria-checked',
+        String(s[b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood' | 'coverColours']),
+      );
     const budget = s.strict ? 1 : 3;
     all(byId('flashMeter'), 'i').forEach(
       (cell, i) => (cell.className = i < budget ? (i < s.flashes ? 'is-on' : '') : 'is-na'),
@@ -416,6 +426,8 @@ export class Shell {
   }
 
   private renderChips(s: AppState): void {
+    // The listening globe shows only while the mood is being read (a source, but no mood yet).
+    const reading = !!s.source && !s.mood;
     const chips: [string, string][] = [
       [s.mood ? MOODS[s.mood].label : s.source ? 'Reading mood' : 'No mood yet', s.mood ? 'is-mood' : ''],
     ];
@@ -424,7 +436,13 @@ export class Shell {
     if (s.source === 'file')
       chips.push([s.lyricSrc ? `Lyrics · ${s.lyricSrc}` : 'No lyrics', s.lyricSrc ? 'is-ink' : '']);
     if (s.meta.mb) chips.push([`${s.meta.fmt} · ${s.meta.mb} MB`, '']);
-    byId('npChips').replaceChildren(...chips.map(([label, cls]) => h('span', { class: 'chip-s ' + cls }, label)));
+    const els = chips.map(([label, cls]) => h('span', { class: 'chip-s ' + cls }, label));
+    byId('npChips').replaceChildren(...els);
+    this.orbShowing = reading;
+    if (reading) {
+      els[0].prepend(this.orb.el);
+      this.orbColor = getComputedStyle(els[0]).color || this.orbColor;
+    }
   }
 
   /** Per-frame: the cover art bumps on the kick and the mini meter follows the spectrum. */
@@ -435,6 +453,11 @@ export class Shell {
       let v = 0;
       for (let b = i * 9; b < i * 9 + 9; b++) v += a.bars[b];
       st.setProperty('--lv' + i, Math.min(1, (v / 9) * 1.5).toFixed(3));
+    }
+    // Drive the chip globe off this same callback — no second animation loop.
+    if (this.orbShowing) {
+      const s = this.app.state;
+      this.orb.draw(performance.now(), s.playing ? a.bars : null, this.orbColor, s.reduce);
     }
   }
 

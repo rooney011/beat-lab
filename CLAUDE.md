@@ -4,9 +4,9 @@ Static TypeScript site (Vite, Canvas 2D, Web Audio). No framework and no npm run
 
 ## Commands
 
-- `npm run dev` — dev server on :5173
+- `npm run dev` — dev server on :5173. Also serves the dev-only **Scene Lab** at `/tools/scene-lab/` for previewing background scenes; `vite build` excludes it.
 - `npm run check` — typecheck, lint, unit tests (run before every commit)
-- `npm run test:e2e` — builds, serves the production build on :4173 and runs Playwright (UI flows + beat-sync regression). Set `CHROMIUM_PATH` to use a preinstalled Chromium.
+- `npm run test:e2e` — builds, serves the production build on :4173 and runs Playwright (UI flows + beat-sync regression). Set `CHROMIUM_PATH` to use a preinstalled Chromium. If the cached Playwright browser doesn't match the pinned version (as in the Claude Code sandbox), set `CHROMIUM_PATH` to the cached Chromium instead of installing or downgrading. CI installs the pinned browser itself, so treat CI as the real e2e check.
 - `npm run format` — Prettier
 
 ## Architecture
@@ -14,6 +14,7 @@ Static TypeScript site (Vite, Canvas 2D, Web Audio). No framework and no npm run
 - `src/app.ts` is the controller. Per frame: `FeatureExtractor.update` (live audio) → `MoodReader.observe` + `DimensionDirector.update` (live) → `SyncDelay.apply` → `Stage.events` + `Stage.render` (delayed).
 - State lives in one `Store<AppState>`; `src/ui/shell.ts` renders it into the static markup in `index.html`.
 - Layers in `src/render/layers/` draw through a `DrawContext` and keep their own short-lived state.
+- The background is `src/render/scenes/`: a `SceneDirector` picks a seeded scene set per mood (a song starts on the listening globe until the mood is read, then crossfades). `Stage` owns a `LookTracker` (per-song energy/brightness/tempo/cover palette) and the director; `App` drives them via `stage.director.setSong/setMood` and `stage.tracker.setMood/setPalette`. Scenes take the final background alpha and must honour calm mode (`docs/scenes.md`).
 - `src/ai/` is the on-device mood model: a lazy Web Worker (`public/mood-worker.js`) runs Essentia.js + TF.js off the render thread. `MoodReader` gives the instant quick read at 8 s; the model's read takes over when it arrives (`App.applyAiRead`). It is best-effort — any load/decode failure falls back silently to the quick read.
 
 ## Rules

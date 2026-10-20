@@ -30,6 +30,8 @@ export interface Track {
   /** → covers store; absent means the generated comic cover is used. */
   coverId?: string;
   replayGain?: { track?: number; album?: number; trackPeak?: number; albumPeak?: number };
+  /** Measured BS.1770 integrated loudness + sample peak, filled in by the background meter. */
+  loudness?: { lufs: number; peak: number };
   addedAt: number;
   lastPlayedAt?: number;
   playCount: number;
@@ -49,4 +51,17 @@ export interface LinkedFolder {
   name: string;
   handle: FileSystemDirectoryHandle;
   lastScanAt?: number;
+}
+
+/** The queue + position saved so the app resumes where you left off (paused) after a reload. */
+export interface PersistedPlayState {
+  order: TrackId[];
+  index: number;
+  /** Seconds into the current track. */
+  position: number;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+  history: TrackId[];
+  /** Crossfade length setting, in seconds. */
+  crossfadeSec: number;
 }

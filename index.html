@@ -170,9 +170,36 @@
               <div id="npChips" class="np__chips"></div>
             </div>
             <div class="np__bar">
+              <button id="btnShuffle" class="btn btn--icon" type="button" aria-label="Shuffle" aria-pressed="false">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M16 4h4v4M20 4l-7 7M16 20h4v-4M20 20l-6-6M4 6h3l10 12h3M4 18h3l3-3"></path>
+                </svg>
+              </button>
+              <button id="btnPrev" class="btn btn--icon" type="button" aria-label="Previous track">
+                <svg class="ic ic--fill" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 5v14H5V5zM20 5v14l-11-7z"></path>
+                </svg>
+              </button>
               <button id="btnPlay" class="btn play" type="button" aria-label="Play">
                 <svg class="ic ic--fill" viewBox="0 0 24 24" aria-hidden="true">
                   <path id="playIcon" d="M7 4l13 8-13 8z"></path>
+                </svg>
+              </button>
+              <button id="btnNext" class="btn btn--icon" type="button" aria-label="Next track">
+                <svg class="ic ic--fill" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M17 5v14h2V5zM4 5v14l11-7z"></path>
+                </svg>
+              </button>
+              <button
+                id="btnRepeat"
+                class="btn btn--icon"
+                type="button"
+                aria-label="Repeat"
+                aria-pressed="false"
+                data-mode="off"
+              >
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 9V8a3 3 0 0 1 3-3h10l-3-3M20 15v1a3 3 0 0 1-3 3H7l3 3"></path>
                 </svg>
               </button>
               <span id="timeL" class="time">—</span>
@@ -344,6 +371,18 @@
                 <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg></button
               ><span class="time" data-sync-val>0 ms</span
               ><button class="btn btn--icon" type="button" data-sync="20" aria-label="More visual delay">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></button
+            ></span>
+          </div>
+          <div class="srow">
+            <span
+              ><span class="sname">Crossfade</span
+              ><span class="shint">Overlap between tracks in the queue (0 = none).</span></span
+            ><span class="sync-ctl"
+              ><button class="btn btn--icon" type="button" data-cross="-1" aria-label="Less crossfade">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg></button
+              ><span class="time" data-cross-val>4s</span
+              ><button class="btn btn--icon" type="button" data-cross="1" aria-label="More crossfade">
                 <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></button
             ></span>
           </div>

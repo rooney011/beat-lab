@@ -47,8 +47,17 @@ export class AudioEngine {
         const input = ctx.createGain();
         input.gain.value = 0.9;
         const monitor = ctx.createGain();
+        // Safety limiter on the audible path only. It bites when loudness levelling boosts a quiet
+        // track toward the ceiling; the analyser path taps `input` directly, so visuals are unaffected.
+        const limiter = ctx.createDynamicsCompressor();
+        limiter.threshold.value = -1;
+        limiter.knee.value = 0;
+        limiter.ratio.value = 20;
+        limiter.attack.value = 0.003;
+        limiter.release.value = 0.1;
         input.connect(monitor);
-        monitor.connect(ctx.destination);
+        monitor.connect(limiter);
+        limiter.connect(ctx.destination);
         this.ctx = ctx;
         this.input = input;
         this.monitor = monitor;

@@ -330,6 +330,7 @@ export class Shell {
       attr(scrub, 'aria-valuetext', `${s.timeL} of ${s.scrubMax} seconds`);
       byId('scrubFill').style.width = Math.round((s.scrub / Math.max(1, s.scrubMax)) * 100) + '%';
     }
+    this.updateMediaSession(s, prev);
 
     // Dimensions box
     this.plates.forEach((b, i) => {
@@ -468,6 +469,92 @@ export class Shell {
       this.libMounted = false;
       console.error(err);
     }
+  }
+
+  // ---------------------------------------------------------------- media session (lock screen / media keys)
+
+  private mediaWired = false;
+
+  /** Register the OS transport handlers once; they route to the same actions the on-screen controls use. */
+  private wireMediaSession(): void {
+    if (this.mediaWired || !('mediaSession' in navigator)) return;
+    this.mediaWired = true;
+    const app = this.app;
+    const ms = navigator.mediaSession;
+    const set = (action: MediaSessionAction, handler: MediaSessionActionHandler | null): void => {
+      try {
+        ms.setActionHandler(action, handler);
+      } catch {
+        /* action unsupported in this browser */
+      }
+    };
+    set('play', () => {
+      if (!app.state.playing) app.togglePlay();
+    });
+    set('pause', () => {
+      if (app.state.playing) app.togglePlay();
+    });
+    set('previoustrack', () => this.lib?.previousTrack());
+    set('nexttrack', () => this.lib?.nextTrack());
+    set('seekbackward', (d) => app.seekBy(-(d.seekOffset ?? 10)));
+    set('seekforward', (d) => app.seekBy(d.seekOffset ?? 10));
+    set('seekto', (d) => {
+      if (typeof d.seekTime === 'number') app.seek(d.seekTime);
+    });
+    set('stop', () => {
+      if (app.state.playing) app.togglePlay();
+    });
+  }
+
+  /** Mirror the current track onto the OS media UI: metadata, play/pause state and the scrubber. */
+  private updateMediaSession(s: AppState, prev: AppState | null): void {
+    if (!('mediaSession' in navigator)) return;
+    this.wireMediaSession();
+    const ms = navigator.mediaSession;
+
+    // Metadata: refresh when the track, its tags or its cover change.
+    if (
+      !prev ||
+      prev.title !== s.title ||
+      prev.meta !== s.meta ||
+      prev.source !== s.source ||
+      prev.hasArt !== s.hasArt
+    ) {
+      ms.metadata = s.source
+        ? new MediaMetadata({
+            title: s.title || 'BEAT LAB',
+            artist: s.meta.artist || (s.source === 'file' ? 'Unknown artist' : 'Live input'),
+            album: s.meta.album || '',
+            artwork: this.coverArtwork(),
+          })
+        : null;
+    }
+
+    if (!prev || prev.playing !== s.playing || prev.source !== s.source)
+      ms.playbackState = !s.source ? 'none' : s.playing ? 'playing' : 'paused';
+
+    // The scrubber only applies to files; live input has no seekable position.
+    if (!prev || prev.scrub !== s.scrub || prev.scrubMax !== s.scrubMax || prev.source !== s.source) {
+      try {
+        if (s.source === 'file' && s.scrubMax > 0)
+          ms.setPositionState({ duration: s.scrubMax, position: Math.min(s.scrub, s.scrubMax), playbackRate: 1 });
+        else ms.setPositionState();
+      } catch {
+        /* duration not ready yet — try again on the next change */
+      }
+    }
+  }
+
+  /** The now-playing cover canvas as a PNG for the OS media UI (works for generated and real art). */
+  private coverArtwork(): MediaImage[] {
+    try {
+      const cv = byId<HTMLCanvasElement>('art');
+      if (cv.width > 0 && cv.height > 0)
+        return [{ src: cv.toDataURL('image/png'), sizes: `${cv.width}x${cv.height}`, type: 'image/png' }];
+    } catch {
+      /* tainted or unsupported — skip artwork */
+    }
+    return [];
   }
 
   /** Reflect queue shuffle/repeat/crossfade state onto the transport controls. */

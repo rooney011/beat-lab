@@ -1,5 +1,6 @@
 import './styles/fonts.css';
 import './styles/app.css';
+import { registerSW } from 'virtual:pwa-register';
 import { App } from './app';
 import { Shell } from './ui/shell';
 import { byId } from './ui/dom';
@@ -29,3 +30,19 @@ function boot(): void {
 }
 
 boot();
+
+// Install the service worker (makes the app installable and open offline). On a new version, offer a
+// tap-to-refresh prompt rather than reloading under the user — never interrupt a song mid-play.
+const updateSW = registerSW({
+  onNeedRefresh() {
+    const bar = document.createElement('button');
+    bar.type = 'button';
+    bar.className = 'pwa-update';
+    bar.textContent = 'Update available — tap to refresh';
+    bar.addEventListener('click', () => {
+      bar.remove();
+      void updateSW(true);
+    });
+    byId('app').append(bar);
+  },
+});

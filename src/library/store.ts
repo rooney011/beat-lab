@@ -431,6 +431,14 @@ export async function playTrack(track: Track, contextIds?: string[]): Promise<vo
   await playCurrent(0, true);
 }
 
+/** Play a whole list shuffled now — the album/artist "Shuffle" button; turns the shuffle toggle on. */
+export async function shufflePlay(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const start = ids[Math.floor(Math.random() * ids.length)];
+  queue.value = playNow({ ...queue.value, shuffle: true }, ids, start, Math.random);
+  await playCurrent(0, true);
+}
+
 export function nextTrack(): void {
   // A manual skip switches now; the crossfade is only for tracks that run out on their own.
   void advance(0);

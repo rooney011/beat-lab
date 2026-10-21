@@ -19,6 +19,7 @@ import {
   removeTrack,
   results,
   scan,
+  shufflePlay,
   splitAlbumKey,
   storage,
   tracks,
@@ -57,16 +58,31 @@ function CoverImg({ track, size }: { track: Track; size: number }): JSX.Element 
       alive = false;
     };
   }, [track.coverId]);
-  const initials = (track.title || '?').slice(0, 1).toUpperCase() + (track.artist || '').slice(0, 1).toUpperCase();
+  // No art: print a generated comic cover instead — a seeded colour plate, big initial and issue number.
+  const seed = coverSeed(track);
+  const initial = (track.album || track.title || '?').slice(0, 1).toUpperCase();
   return (
     <span class="lib-cover" style={{ width: `${size}px`, height: `${size}px` }}>
       {url ? (
         <img class="lib-cover__img" src={url} alt="" width={size} height={size} />
       ) : (
-        <span class="lib-cover__ph">{initials}</span>
+        <span class={`lib-cover__ph lib-cover__ph--v${seed % 4}`} aria-hidden="true">
+          <span class="lib-cover__initial" style={{ fontSize: `${Math.round(size * 0.5)}px` }}>
+            {initial}
+          </span>
+          {size >= 80 && <span class="lib-cover__issue mono">#{String((seed % 99) + 1).padStart(2, '0')}</span>}
+        </span>
       )}
     </span>
   );
+}
+
+/** A stable non-negative seed from a track's album/artist, so its generated cover never changes. */
+function coverSeed(track: Track): number {
+  const s = `${track.album || track.title || ''}${track.albumArtist || track.artist || ''}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
 }
 
 // ---------------------------------------------------------------- rows and grids
@@ -158,6 +174,7 @@ function AlbumCard({ album }: { album: Album }): JSX.Element {
     <button
       class="lib-album"
       type="button"
+      aria-label={`${album.album} by ${album.artist}`}
       onClick={() => {
         albumKey.value = album.key;
       }}
@@ -201,20 +218,29 @@ function AlbumDetail({ album }: { album: Album }): JSX.Element {
             {album.artist}
             {album.year ? ` · ${album.year}` : ''}
           </p>
-          <button
-            class="btn cta lib-play-all"
-            type="button"
-            onClick={() => {
-              const first = album.tracks[0];
-              if (first)
-                void playTrack(
-                  first,
-                  album.tracks.map((t) => t.id),
-                );
-            }}
-          >
-            ▶ Play
-          </button>
+          <div class="lib-detail__actions">
+            <button
+              class="btn cta lib-play-all"
+              type="button"
+              onClick={() => {
+                const first = album.tracks[0];
+                if (first)
+                  void playTrack(
+                    first,
+                    album.tracks.map((t) => t.id),
+                  );
+              }}
+            >
+              ▶ Play
+            </button>
+            <button
+              class="btn lib-shuffle-all"
+              type="button"
+              onClick={() => void shufflePlay(album.tracks.map((t) => t.id))}
+            >
+              ⇄ Shuffle
+            </button>
+          </div>
         </div>
       </div>
       <SongList list={album.tracks} />

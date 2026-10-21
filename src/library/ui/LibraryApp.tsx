@@ -14,6 +14,7 @@ import {
   linkFolder,
   playTrack,
   query,
+  queue,
   reconnectFolder,
   removeTrack,
   results,
@@ -30,6 +31,7 @@ const VIEWS: [LibraryView, string][] = [
   ['albums', 'Albums'],
   ['artists', 'Artists'],
   ['songs', 'Songs'],
+  ['queue', 'Queue'],
   ['search', 'Search'],
 ];
 
@@ -69,17 +71,17 @@ function CoverImg({ track, size }: { track: Track; size: number }): JSX.Element 
 
 // ---------------------------------------------------------------- rows and grids
 
-function SongRow({ track }: { track: Track }): JSX.Element {
+function SongRow({ track, context }: { track: Track; context: string[] }): JSX.Element {
   return (
     <div
       class="lib-row"
       role="row"
       tabIndex={0}
-      onClick={() => void playTrack(track)}
+      onClick={() => void playTrack(track, context)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          void playTrack(track);
+          void playTrack(track, context);
         }
       }}
     >
@@ -108,10 +110,11 @@ function SongRow({ track }: { track: Track }): JSX.Element {
 
 function SongList({ list }: { list: Track[] }): JSX.Element {
   if (!list.length) return <p class="lib-empty">No songs.</p>;
+  const context = list.map((t) => t.id);
   return (
     <div class="lib-list" role="list">
       {list.map((t) => (
-        <SongRow key={t.id} track={t} />
+        <SongRow key={t.id} track={t} context={context} />
       ))}
     </div>
   );
@@ -203,7 +206,11 @@ function AlbumDetail({ album }: { album: Album }): JSX.Element {
             type="button"
             onClick={() => {
               const first = album.tracks[0];
-              if (first) void playTrack(first);
+              if (first)
+                void playTrack(
+                  first,
+                  album.tracks.map((t) => t.id),
+                );
             }}
           >
             ▶ Play
@@ -360,6 +367,14 @@ function Songs(): JSX.Element {
   );
 }
 
+function QueueView(): JSX.Element {
+  const q = queue.value;
+  const byId = new Map(tracks.value.map((t) => [t.id, t]));
+  const list = q.order.map((id) => byId.get(id)).filter((t): t is Track => !!t);
+  if (!list.length) return <p class="lib-empty">The queue is empty. Play something to build it.</p>;
+  return <SongList list={list} />;
+}
+
 export function LibraryApp(): JSX.Element {
   useEffect(() => {
     void initLibrary();
@@ -382,6 +397,8 @@ export function LibraryApp(): JSX.Element {
           <Artists albums={albums} />
         ) : current === 'songs' ? (
           <Songs />
+        ) : current === 'queue' ? (
+          <QueueView />
         ) : (
           <SongList list={results.value} />
         )}

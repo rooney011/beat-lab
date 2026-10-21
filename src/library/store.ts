@@ -1,5 +1,15 @@
-import { computed, signal } from '@preact/signals';
-import { deleteTrack, getAllFolders, getAllTracks, putCoverOnce, putFolder, putTrack, putTracks } from './db';
+import { computed, effect, signal } from '@preact/signals';
+import {
+  deleteTrack,
+  getAllFolders,
+  getAllTracks,
+  getPlayState,
+  putCoverOnce,
+  putFolder,
+  putPlayState,
+  putTrack,
+  putTracks,
+} from './db';
 import {
   deleteImport,
   ensurePermission,
@@ -10,13 +20,25 @@ import {
   storageEstimate,
   storeImport,
 } from './files';
+import { measuredGainDb, measureLoudness, replayGainDb } from './loudness';
 import { parseMeta } from './meta';
+import {
+  currentId as queueCurrentId,
+  emptyQueue,
+  next as queueNext,
+  playNow,
+  previous as queuePrevious,
+  type QueueState,
+  type RepeatMode,
+  setRepeat,
+  setShuffle,
+} from './queue';
 import { searchTracks } from './search';
 import { type DirHandleLike, type ScanEntry, type ScanStat, walk } from './scan';
 import { makeCover } from './thumb';
-import type { LinkedFolder, Track } from './types';
+import type { LinkedFolder, PersistedPlayState, Track } from './types';
 
-export type LibraryView = 'albums' | 'artists' | 'songs' | 'search';
+export type LibraryView = 'albums' | 'artists' | 'songs' | 'queue' | 'search';
 
 export interface ScanProgress {
   done: number;
@@ -25,9 +47,8 @@ export interface ScanProgress {
   label: string;
 }
 
-/** What the library needs from the host app to actually play a track and leave the screen. */
+/** Leaving the library screen is the host app's job (the transport handles actual playback). */
 export interface LibraryBridge {
-  play(file: File, track: Track): void;
   close(): void;
 }
 
@@ -253,13 +274,253 @@ export async function removeTrack(track: Track): Promise<void> {
   if (track.source === 'import') void refreshStorage();
 }
 
-export async function playTrack(track: Track): Promise<void> {
-  const file = await fileForTrack(track);
-  if (!file) return;
+// ---------------------------------------------------------------- playback / queue
+
+/** The display metadata the library already resolved, so playback shows the real title, not the OPFS file name. */
+export interface PlayMeta {
+  title: string;
+  artist: string;
+  album: string;
+  year?: number;
+}
+
+/** What the host app provides so the library queue can drive the deck engine. */
+export interface Transport {
+  play(file: File, deck: { id: string; gainDb: number }, crossfadeSec: number, startSec: number, meta?: PlayMeta): void;
+  seek(seconds: number): void;
+  position(): number;
+  duration(): number;
+  setGain(db: number): void;
+}
+
+export const queue = signal<QueueState>(emptyQueue());
+export const nowPlayingId = signal<string | null>(null);
+export const crossfadeSec = signal(4);
+
+let transport: Transport | null = null;
+let resumeId: string | null = null;
+let resumePosition = 0;
+
+function trackById(id: string): Track | undefined {
+  return tracks.value.find((t) => t.id === id);
+}
+
+function metaOf(track: Track | undefined): PlayMeta | undefined {
+  return track && { title: track.title, artist: track.artist, album: track.album, year: track.year };
+}
+
+/** Best-known loudness trim: a measurement first, then a ReplayGain tag, else 0 dB. */
+function gainDbFor(track: Track): number {
+  if (track.loudness) return measuredGainDb(track.loudness);
+  if (track.replayGain?.track !== undefined) return replayGainDb(track.replayGain.track, track.replayGain.trackPeak);
+  return 0;
+}
+
+function bumpPlayCount(id: string): Track | undefined {
+  const track = trackById(id);
+  if (!track) return undefined;
   const updated: Track = { ...track, playCount: track.playCount + 1, lastPlayedAt: Date.now() };
   void putTrack(updated);
-  tracks.value = tracks.value.map((t) => (t.id === track.id ? updated : t));
-  bridge?.play(file, updated);
+  tracks.value = tracks.value.map((t) => (t.id === id ? updated : t));
+  return updated;
+}
+
+// persistence
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+// Throttle, not debounce: the 500 ms crossfade watcher calls this constantly, and a debounce would
+// keep resetting and never fire. Coalesce into one write every 1.5 s, reading the latest state then.
+function persistSoon(): void {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    savePlayState();
+  }, 1500);
+}
+function savePlayState(): void {
+  const q = queue.value;
+  const state: PersistedPlayState = {
+    order: q.order,
+    index: q.index,
+    history: q.history,
+    shuffle: q.shuffle,
+    repeat: q.repeat,
+    position: transport?.position() ?? resumePosition,
+    crossfadeSec: crossfadeSec.value,
+  };
+  void putPlayState(state);
+}
+
+// crossfade watcher: near a track's end, start the next one so they overlap
+let watcher: ReturnType<typeof setInterval> | null = null;
+let crossfadedFrom: string | null = null;
+function startWatcher(): void {
+  if (watcher) return;
+  watcher = setInterval(() => {
+    const t = transport;
+    if (!t) return;
+    persistSoon();
+    const id = nowPlayingId.value;
+    const cross = crossfadeSec.value;
+    const dur = t.duration();
+    if (id && cross > 0 && dur > 0 && crossfadedFrom !== id && dur - t.position() <= cross && hasNext()) {
+      crossfadedFrom = id;
+      void advance(cross);
+    }
+  }, 500);
+}
+function stopWatcher(): void {
+  if (watcher) clearInterval(watcher);
+  watcher = null;
+}
+
+function hasNext(): boolean {
+  return queueCurrentId(queueNext(queue.value)) !== null;
+}
+
+async function playCurrent(cross: number): Promise<void> {
+  const id = queueCurrentId(queue.value);
+  nowPlayingId.value = id;
+  if (!id || !transport) {
+    stopWatcher();
+    return;
+  }
+  const file = await fileForTrack(trackById(id) ?? ({ id } as Track));
+  if (!file) {
+    // Skip an unplayable track.
+    queue.value = queueNext(queue.value);
+    if (queueCurrentId(queue.value)) return playCurrent(cross);
+    nowPlayingId.value = null;
+    stopWatcher();
+    return;
+  }
+  const track = bumpPlayCount(id);
+  crossfadedFrom = null;
+  const startSec = id === resumeId ? resumePosition : 0;
+  resumeId = null;
+  resumePosition = 0;
+  transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec, metaOf(track));
+  startWatcher();
+  persistSoon();
+  if (track) void measureAndApply(track);
+}
+
+async function advance(cross: number): Promise<void> {
+  queue.value = queueNext(queue.value);
+  if (queueCurrentId(queue.value) === null) {
+    stopWatcher();
+    nowPlayingId.value = null;
+    persistSoon();
+    return;
+  }
+  await playCurrent(cross);
+}
+
+/** Play a track now, seeding the queue from the list it was shown in. */
+export async function playTrack(track: Track, contextIds?: string[]): Promise<void> {
+  const ids = contextIds && contextIds.length ? contextIds : [track.id];
+  queue.value = playNow(queue.value, ids, track.id, Math.random);
+  await playCurrent(0);
+}
+
+export function nextTrack(): void {
+  void advance(crossfadeSec.value);
+}
+
+export function previousTrack(): void {
+  if ((transport?.position() ?? 0) > 3) {
+    transport?.seek(0);
+    return;
+  }
+  queue.value = queuePrevious(queue.value);
+  void playCurrent(0);
+}
+
+/** The host calls this when the current track ends on its own. Returns true if the queue advanced. */
+export function onQueueEnded(): boolean {
+  if (!hasNext() && queue.value.repeat === 'off') {
+    nowPlayingId.value = null;
+    stopWatcher();
+    persistSoon();
+    return false;
+  }
+  void advance(0); // a crossfade, if any, already happened before the end
+  return true;
+}
+
+/** A direct file open took over: drop the queue. */
+export function onExternalPlay(): void {
+  queue.value = emptyQueue();
+  nowPlayingId.value = null;
+  stopWatcher();
+  persistSoon();
+}
+
+export function toggleShuffle(): void {
+  queue.value = setShuffle(queue.value, !queue.value.shuffle, Math.random);
+  persistSoon();
+}
+
+export function cycleRepeat(): void {
+  const modes: RepeatMode[] = ['off', 'all', 'one'];
+  const i = modes.indexOf(queue.value.repeat);
+  queue.value = setRepeat(queue.value, modes[(i + 1) % modes.length]);
+  persistSoon();
+}
+
+export function setCrossfade(sec: number): void {
+  crossfadeSec.value = Math.max(0, Math.min(12, Math.round(sec)));
+  persistSoon();
+}
+
+export function setTransport(t: Transport): void {
+  transport = t;
+  void restorePlayState();
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', savePlayState);
+}
+
+/** Run `cb` whenever the queue, crossfade length or now-playing track changes (for host chrome). */
+export function subscribePlayback(cb: () => void): () => void {
+  return effect(() => {
+    void queue.value;
+    void crossfadeSec.value;
+    void nowPlayingId.value;
+    cb();
+  });
+}
+
+async function restorePlayState(): Promise<void> {
+  const s = await getPlayState();
+  if (!s || !s.order.length) return;
+  crossfadeSec.value = s.crossfadeSec || 4;
+  queue.value = { order: s.order, index: s.index, history: s.history, shuffle: s.shuffle, repeat: s.repeat };
+  const id = queueCurrentId(queue.value);
+  nowPlayingId.value = id;
+  if (id) {
+    resumeId = id;
+    resumePosition = s.position;
+  }
+}
+
+// Background loudness measurement for the playing track (plays at 0 dB / ReplayGain until ready).
+let decodeCtx: OfflineAudioContext | null = null;
+async function measureAndApply(track: Track): Promise<void> {
+  if (track.loudness || track.replayGain?.track !== undefined) return;
+  try {
+    const file = await fileForTrack(track);
+    if (!file) return;
+    decodeCtx ??= new OfflineAudioContext(1, 1, 44100);
+    const buf = await decodeCtx.decodeAudioData(await file.arrayBuffer());
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
+    const result = measureLoudness(channels, buf.sampleRate);
+    if (!Number.isFinite(result.lufs)) return;
+    const updated: Track = { ...track, loudness: result };
+    void putTrack(updated);
+    tracks.value = tracks.value.map((t) => (t.id === track.id ? updated : t));
+    if (nowPlayingId.value === track.id) transport?.setGain(measuredGainDb(result));
+  } catch {
+    /* leave the track at 0 dB */
+  }
 }
 
 // Used only by the rescan path and tests that want the current on-disk fingerprint.

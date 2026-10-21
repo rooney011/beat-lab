@@ -1,5 +1,7 @@
+import { PlaybackEngine, type DeckTrack } from './audio/decks';
+import type { PlayMeta } from './library/store';
 import { AudioEngine } from './audio/engine';
-import { FileSource, LiveSource, LiveSourceError, type LiveKind } from './audio/sources';
+import { LiveSource, LiveSourceError, type LiveKind } from './audio/sources';
 import { AiMood, type AiMoodResult } from './ai/aimood';
 import { FeatureExtractor } from './analysis/features';
 import { DimensionDirector } from './analysis/ladder';
@@ -130,7 +132,9 @@ export class App {
   frameMs = 16;
 
   private readonly strip: BandStrip;
-  private file: FileSource | null = null;
+  private playback: PlaybackEngine | null = null;
+  /** Set by the library's playback controller to drive the queue on track-end and on file-open. */
+  queueHooks: { ended: () => boolean; external: () => void } | null = null;
   private live: LiveSource | null = null;
   private lyricsAbort: AbortController | null = null;
   private pendingLrc: File | null = null;
@@ -216,6 +220,8 @@ export class App {
     cancelAnimationFrame(this.raf);
     this.resizeObs?.disconnect();
     this.stopSources();
+    this.playback?.dispose();
+    this.playback = null;
     this.ai.dispose();
     void this.audio.ctx?.close();
   }
@@ -278,12 +284,27 @@ export class App {
         this.set({ suspended: ctx.state === 'suspended' && this.state.playing }),
       );
     }
+    if (!this.playback && this.audio.input) {
+      this.playback = new PlaybackEngine(ctx, this.audio.input);
+      this.playback.onEnded = () => this.onTrackEnded();
+      this.playback.onError = () => this.onTrackError();
+    }
     return ctx;
   }
 
+  /** The current track ended: let the queue advance, otherwise just stop. */
+  private onTrackEnded(): void {
+    if (this.queueHooks?.ended()) return;
+    this.set({ playing: false });
+  }
+
+  private onTrackError(): void {
+    this.stopSources();
+    this.set({ card: 'err-file', source: null, playing: false, title: '' });
+  }
+
   private stopSources(): void {
-    this.file?.dispose();
-    this.file = null;
+    this.playback?.stopAll();
     this.live?.dispose();
     this.live = null;
     this.lyricsAbort?.abort();
@@ -328,11 +349,23 @@ export class App {
     this.set({ screen: 'library', drawer: false, card: null, clean: false });
   }
 
-  /** Play a track chosen from the library: reuse the single-file pipeline and leave the library. */
-  playLibraryFile(file: File): void {
+  /** Transport entry for the library queue controller: play a resolved file on the deck engine. */
+  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0, meta?: PlayMeta): void {
     this.ensureAudio();
     this.set({ screen: 'live' });
-    void this.loadFile(file);
+    void this.loadFile(file, deck, crossfadeSec, startSec, meta);
+  }
+
+  /** The deck engine's live position/length, for the queue controller's resume state and crossfade. */
+  playbackTime(): number {
+    return this.playback?.currentTime ?? 0;
+  }
+  playbackDuration(): number {
+    return this.playback?.duration ?? 0;
+  }
+  /** Apply a loudness trim mid-play (smoothed), e.g. when a measurement arrives. */
+  setPlaybackGain(db: number): void {
+    this.playback?.setGainDb(db);
   }
 
   /** Files from the picker or a drop: one audio file, optionally with its .lrc. */
@@ -350,9 +383,15 @@ export class App {
     }
   }
 
-  private async loadFile(file: File): Promise<void> {
+  private async loadFile(
+    file: File,
+    deck: DeckTrack = { id: null, gainDb: 0 },
+    crossfadeSec = 0,
+    startSec = 0,
+    lib?: PlayMeta,
+  ): Promise<void> {
     const ctx = this.ensureAudio();
-    if (!ctx || !this.audio.input) return;
+    if (!ctx || !this.audio.input || !this.playback) return;
     const probe = document.createElement('audio');
     if (file.type && !file.type.startsWith('audio/') && !file.type.startsWith('video/')) {
       this.set({ card: 'err-file' });
@@ -363,33 +402,48 @@ export class App {
       return;
     }
     if (ctx.state === 'suspended') void ctx.resume();
-    this.stopSources();
-    const src = new FileSource(ctx, file, this.audio.input);
-    this.file = src;
-    this.audio.setMonitor(true);
-    src.onEnded = () => {
-      if (this.file === src) this.set({ playing: false });
-    };
-    src.onError = () => {
-      if (this.file !== src) return;
-      this.stopSources();
-      this.set({ card: 'err-file', source: null, playing: false, title: '' });
-    };
-    this.set({ source: 'file', playing: true, title: file.name, card: null, requesting: null, scrub: 0, scrubMax: 1 });
+    const engine = this.playback;
     const key = `file:${file.name}:${file.size}`;
+    // A direct file open (no library id) takes over from any active queue.
+    if (deck.id === null) this.queueHooks?.external();
+    // Crossfade only when a track is already playing on the deck; otherwise hard-start.
+    const fading = crossfadeSec > 0 && !engine.paused && this.state.source === 'file';
+    if (fading) {
+      this.lyricsAbort?.abort();
+      this.lyricsAbort = null;
+      this.ai.stop();
+      this.aiRead = null;
+      engine.crossfade(file, deck, crossfadeSec).catch(() => {});
+    } else {
+      this.stopSources();
+      this.audio.setMonitor(true);
+      engine.play(file, deck).catch(() => {
+        if (this.songKey === key) this.set({ playing: false });
+      });
+    }
+    this.set({
+      source: 'file',
+      playing: true,
+      title: lib?.title || file.name,
+      card: null,
+      requesting: null,
+      scrub: 0,
+      scrubMax: 1,
+    });
     this.beginRun(key, false);
     this.setLyrics(null, '');
     const guess = guessFromFilename(file.name);
-    this.setMeta(this.metaFrom({}, file));
-    src.play().catch(() => {
-      if (this.file === src) this.set({ playing: false });
-    });
+    this.setMeta(this.metaFrom({}, file, lib));
     void this.ai.analyzeFile(ctx, file, key);
     const lrc = this.pendingLrc;
     this.pendingLrc = null;
-    const [tags, duration] = await Promise.all([readFileTags(file), src.duration()]);
+    const [tags, duration] = await Promise.all([readFileTags(file), engine.durationReady()]);
     if (this.songKey !== key) return;
-    const meta = this.metaFrom(tags, file);
+    if (startSec > 0) {
+      engine.currentTime = startSec;
+      this.set({ scrub: Math.floor(startSec) });
+    }
+    const meta = this.metaFrom(tags, file, lib);
     this.setMeta(meta);
     void this.cover.load(tags.pic).then((ok) => {
       if (ok && this.songKey === key) {
@@ -400,25 +454,24 @@ export class App {
       }
     });
     if (lrc) this.loadLrcFile(lrc);
-    else if (this.state.lyricsOnline)
-      void this.fetchLyrics(
-        key,
-        tags.artist
-          ? { artist: tags.artist, title: tags.title || guess.title, q: `${tags.artist} ${tags.title || guess.title}` }
-          : guess,
-        duration,
-      );
-    else this.toast('Tip: pick the song and its .lrc together for synced lyrics');
+    else if (this.state.lyricsOnline) {
+      // Prefer the library's resolved tags (the OPFS copy's own tags are the same, its name is not).
+      const artist = lib?.artist || tags.artist;
+      const title = lib?.title || tags.title || guess.title;
+      void this.fetchLyrics(key, artist ? { artist, title, q: `${artist} ${title}` } : guess, duration);
+    } else this.toast('Tip: pick the song and its .lrc together for synced lyrics');
   }
 
-  private metaFrom(tags: Tags, file: File): TrackMeta {
+  private metaFrom(tags: Tags, file: File, lib?: PlayMeta): TrackMeta {
     const g = guessFromFilename(file.name);
     const ext = (file.name.split('.').pop() || '').toUpperCase();
     return {
-      title: tags.title || g.title || file.name,
-      artist: tags.artist || g.artist || '',
-      album: tags.album || '',
-      year: tags.year || '',
+      // The library already resolved these from the original file's tags; prefer them, since the
+      // OPFS copy is named by id and loses the tags the quick file read would otherwise rely on.
+      title: lib?.title || tags.title || g.title || file.name,
+      artist: lib?.artist || tags.artist || g.artist || '',
+      album: lib?.album || tags.album || '',
+      year: (lib?.year ? String(lib.year) : '') || tags.year || '',
       fmt: ext.length <= 4 ? ext : 'FILE',
       mb: file.size ? (file.size / 1048576).toFixed(1) : '',
     };
@@ -503,13 +556,13 @@ export class App {
       return;
     }
     const ctx = this.audio.ctx;
-    if (s.source === 'file' && this.file) {
-      if (this.file.paused) {
+    if (s.source === 'file' && this.playback) {
+      if (this.playback.paused) {
         if (ctx?.state === 'suspended') void ctx.resume();
-        this.file.play().catch(() => {});
+        this.playback.resume().catch(() => {});
         this.set({ playing: true });
       } else {
-        this.file.pause();
+        this.playback.pause();
         this.set({ playing: false });
       }
       return;
@@ -525,13 +578,13 @@ export class App {
   }
 
   seek(seconds: number): void {
-    if (!this.file) return;
-    this.file.currentTime = Math.max(0, seconds);
-    this.set({ scrub: Math.floor(this.file.currentTime) });
+    if (!this.playback || this.state.source !== 'file') return;
+    this.playback.currentTime = Math.max(0, seconds);
+    this.set({ scrub: Math.floor(this.playback.currentTime) });
   }
 
   seekBy(delta: number): void {
-    if (this.file) this.seek(this.file.currentTime + delta);
+    if (this.playback && this.state.source === 'file') this.seek(this.playback.currentTime + delta);
   }
 
   resumeAudio(): void {
@@ -593,7 +646,7 @@ export class App {
   /** Song position in seconds for lyrics, or -1 when the source has no timeline. */
   private songTime(): number {
     const s = this.state;
-    if (s.source === 'file' && this.file) return this.file.currentTime;
+    if (s.source === 'file' && this.playback) return this.playback.currentTime;
     return -1;
   }
 
@@ -827,9 +880,9 @@ export class App {
     const up: Partial<AppState> = {};
     let timeL = '';
     let timeR = '';
-    if (s.source === 'file' && this.file) {
-      const cur = this.file.currentTime;
-      const d = Number.isFinite(this.file.el.duration) ? this.file.el.duration : 0;
+    if (s.source === 'file' && this.playback) {
+      const cur = this.playback.currentTime;
+      const d = this.playback.duration;
       timeL = formatTime(cur);
       timeR = '−' + formatTime(Math.max(0, d - cur));
       up.scrub = Math.floor(cur);

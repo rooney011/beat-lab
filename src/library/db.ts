@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Cover, LinkedFolder, Track } from './types';
+import type { Cover, LinkedFolder, PersistedPlayState, Track } from './types';
 
 /**
  * The library's IndexedDB. Tracks, deduplicated covers and linked-folder handles each get a store;
@@ -11,21 +11,35 @@ interface LibraryDB extends DBSchema {
   covers: { key: string; value: Cover };
   folders: { key: string; value: LinkedFolder };
   blobs: { key: string; value: Blob };
+  playstate: { key: string; value: PersistedPlayState };
 }
 
 let dbp: Promise<IDBPDatabase<LibraryDB>> | null = null;
 
 function db(): Promise<IDBPDatabase<LibraryDB>> {
   if (!dbp)
-    dbp = openDB<LibraryDB>('beat-lab-library', 1, {
-      upgrade(d) {
-        d.createObjectStore('tracks', { keyPath: 'id' });
-        d.createObjectStore('covers', { keyPath: 'id' });
-        d.createObjectStore('folders', { keyPath: 'id' });
-        d.createObjectStore('blobs');
+    dbp = openDB<LibraryDB>('beat-lab-library', 2, {
+      upgrade(d, oldVersion) {
+        if (oldVersion < 1) {
+          d.createObjectStore('tracks', { keyPath: 'id' });
+          d.createObjectStore('covers', { keyPath: 'id' });
+          d.createObjectStore('folders', { keyPath: 'id' });
+          d.createObjectStore('blobs');
+        }
+        if (oldVersion < 2) d.createObjectStore('playstate');
       },
     });
   return dbp;
+}
+
+const PLAYSTATE_KEY = 'current';
+
+export async function getPlayState(): Promise<PersistedPlayState | undefined> {
+  return (await db()).get('playstate', PLAYSTATE_KEY);
+}
+
+export async function putPlayState(s: PersistedPlayState): Promise<void> {
+  await (await db()).put('playstate', s, PLAYSTATE_KEY);
 }
 
 export async function getAllTracks(): Promise<Track[]> {

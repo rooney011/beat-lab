@@ -63,6 +63,9 @@ export class Shell {
   private returnFocus: HTMLElement | null = null;
   private scrubbing = false;
   private libMounted = false;
+  /** The lazily-loaded library/playback module (null until the library screen is first opened). */
+  private lib: typeof import('../library/store') | null = null;
+  private crossSec = 4;
   /** The chip-sized listening globe, shown in the "Reading mood" chip. */
   private readonly orb = new ListeningOrb(12);
   private orbShowing = false;
@@ -165,6 +168,10 @@ export class Shell {
     on('coverLibrary', () => app.openLibrary());
     on('btnLibrary', () => app.openLibrary());
     on('btnPlay', () => app.togglePlay());
+    on('btnPrev', () => this.lib?.previousTrack());
+    on('btnNext', () => this.lib?.nextTrack());
+    on('btnShuffle', () => this.lib?.toggleShuffle());
+    on('btnRepeat', () => this.lib?.cycleRepeat());
     on('btnAuto', () => app.toggleAuto());
     on('btnCalm', () => app.toggleCalm());
     on('btnCrew', () => app.toggleFx('dancers'));
@@ -177,6 +184,8 @@ export class Shell {
       b.addEventListener('click', () => app.nudgeSync(Number(b.dataset.sync)));
     for (const b of all<HTMLButtonElement>(document, '[data-sync-auto]'))
       b.addEventListener('click', () => app.toggleSyncAuto());
+    for (const b of all<HTMLButtonElement>(document, '[data-cross]'))
+      b.addEventListener('click', () => this.lib?.setCrossfade(this.crossSec + Number(b.dataset.cross)));
     for (const b of all<HTMLButtonElement>(document, '[data-toggle]')) {
       const key = b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood' | 'coverColours';
       b.addEventListener('click', () => app.set({ [key]: !app.state[key] }));
@@ -439,15 +448,39 @@ export class Shell {
     if (this.libMounted) return;
     this.libMounted = true;
     try {
-      const { mountLibrary } = await import('../library/mount');
-      mountLibrary(byId('library-root'), {
-        play: (file) => this.app.playLibraryFile(file),
-        close: () => this.app.set({ screen: this.app.state.source ? 'live' : 'cover' }),
+      const app = this.app;
+      const lib = await import('../library/store');
+      this.lib = lib;
+      lib.setBridge({ close: () => app.set({ screen: app.state.source ? 'live' : 'cover' }) });
+      lib.setTransport({
+        play: (file, deck, crossfadeSec, startSec, meta) => app.playTrackFile(file, deck, crossfadeSec, startSec, meta),
+        seek: (s) => app.seek(s),
+        position: () => app.playbackTime(),
+        duration: () => app.playbackDuration(),
+        setGain: (db) => app.setPlaybackGain(db),
       });
+      app.queueHooks = { ended: () => lib.onQueueEnded(), external: () => lib.onExternalPlay() };
+      lib.subscribePlayback(() => this.renderTransport());
+      const { mountLibrary } = await import('../library/mount');
+      mountLibrary(byId('library-root'));
+      this.renderTransport();
     } catch (err) {
       this.libMounted = false;
       console.error(err);
     }
+  }
+
+  /** Reflect queue shuffle/repeat/crossfade state onto the transport controls. */
+  private renderTransport(): void {
+    const lib = this.lib;
+    if (!lib) return;
+    const q = lib.queue.value;
+    this.crossSec = lib.crossfadeSec.value;
+    attr(byId('btnShuffle'), 'aria-pressed', String(q.shuffle));
+    const repeat = byId('btnRepeat');
+    attr(repeat, 'aria-pressed', String(q.repeat !== 'off'));
+    attr(repeat, 'data-mode', q.repeat);
+    for (const el of all(document, '[data-cross-val]')) text(el, `${this.crossSec}s`);
   }
 
   private renderChips(s: AppState): void {

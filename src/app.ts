@@ -763,42 +763,44 @@ export class App {
     const draw = st.screen !== 'library';
     if (draw) this.stage.events(a.f, t, st, this.director.now);
     const songT = this.songTime();
-    if (draw) this.stage.render({
-      a,
-      t,
-      dt,
-      s: st,
-      dim: this.director.now,
-      profile: this.mood.profile,
-      motion: moodLook(st.mood).motion,
-      word: this.giantWord(st),
-      wipe: (ms) => this.director.advanceWipe(t, ms),
-      envelope: this.features.sinT[0],
-      drawLyrics: (c, D, k, kick) => {
-        if (songT < 0 || !this.lyrics.active) return;
-        this.lyrics.draw({
-          c,
-          songTime: songT - delay / 1000,
-          t,
-          W: c.canvas.width,
-          H: c.canvas.height,
-          k,
-          D,
-          layout: st.layout,
-          calm: st.reduce,
-          style: moodLook(st.mood).lyric,
-          bpm: st.bpm,
-          kick,
-        });
-      },
-    });
-    if (draw) this.strip.draw(
-      a.f.bands,
-      DIMS[this.director.now],
-      st.layout !== 'desktop',
-      !st.playing,
-      t - this.stage.lastBeatSeen < 120,
-    );
+    if (draw)
+      this.stage.render({
+        a,
+        t,
+        dt,
+        s: st,
+        dim: this.director.now,
+        profile: this.mood.profile,
+        motion: moodLook(st.mood).motion,
+        word: this.giantWord(st),
+        wipe: (ms) => this.director.advanceWipe(t, ms),
+        envelope: this.features.sinT[0],
+        drawLyrics: (c, D, k, kick) => {
+          if (songT < 0 || !this.lyrics.active) return;
+          this.lyrics.draw({
+            c,
+            songTime: songT - delay / 1000,
+            t,
+            W: c.canvas.width,
+            H: c.canvas.height,
+            k,
+            D,
+            layout: st.layout,
+            calm: st.reduce,
+            style: moodLook(st.mood).lyric,
+            bpm: st.bpm,
+            kick,
+          });
+        },
+      });
+    if (draw)
+      this.strip.draw(
+        a.f.bands,
+        DIMS[this.director.now],
+        st.layout !== 'desktop',
+        !st.playing,
+        t - this.stage.lastBeatSeen < 120,
+      );
     this.perf(dt, t);
     this.tick(t, lf);
     this.onFrame?.(a);

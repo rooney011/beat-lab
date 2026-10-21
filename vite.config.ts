@@ -1,5 +1,6 @@
 import type { PreviewServer } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { VitePWA } from 'vite-plugin-pwa';
 import vercel from './vercel.json';
 
 // Compile each vercel.json header rule's `source` into a matcher, so `vite preview` serves exactly
@@ -28,7 +29,52 @@ const perPathHeaders = {
 };
 
 export default defineConfig({
-  plugins: [perPathHeaders],
+  plugins: [
+    perPathHeaders,
+    // Installable + offline. The service worker precaches the app shell and caches the self-hosted
+    // Essentia model files on first use. It is registered by hand in main.ts (injectRegister: null)
+    // so the page CSP stays free of inline scripts. The /workers/ Essentia worker is left out of the
+    // precache so it is always fetched from the server — keeping its scoped 'unsafe-eval' CSP header,
+    // never served from the SW cache under the strict page policy.
+    VitePWA({
+      registerType: 'prompt',
+      injectRegister: null,
+      manifest: {
+        id: '/',
+        name: 'BEAT LAB',
+        short_name: 'BEAT LAB',
+        description: 'An audio-reactive comic print visualizer and music player for the browser.',
+        theme_color: '#0B0A10',
+        background_color: '#0B0A10',
+        display: 'standalone',
+        orientation: 'any',
+        start_url: '/',
+        scope: '/',
+        icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        clientsClaim: true,
+        globPatterns: ['**/*.{js,css,html,svg,woff,woff2}'],
+        globIgnores: ['workers/**', '**/og.jpg'],
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/workers\//, /^\/models\//],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        runtimeCaching: [
+          {
+            // The self-hosted Essentia model files: large, static, best-effort — cache on first use.
+            urlPattern: ({ url }) => url.pathname.startsWith('/models/'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'beat-lab-models', expiration: { maxEntries: 32 } },
+          },
+        ],
+      },
+      devOptions: { enabled: false },
+    }),
+  ],
   // Preact JSX for the library/player screens compiles to `preact/jsx-runtime` h() calls — no
   // `eval`, so it stays within the page CSP's `script-src 'self'`. Vite's esbuild transform reads
   // the `jsx`/`jsxImportSource` settings from tsconfig.json; only .tsx/.jsx files are affected.

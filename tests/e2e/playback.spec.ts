@@ -36,7 +36,10 @@ test('playing a song forms a queue; next and previous move through it', async ({
   await page.locator('#btnNext').click();
   await expect(page.locator('#npTitle')).not.toHaveText(first);
 
+  // Previous restarts the current track once it's more than 3s in (standard player behaviour), so a
+  // second press steps back to the previous track. Press until we're there, however long Next took.
   await page.locator('#btnPrev').click();
+  if ((await npTitle(page)) !== first) await page.locator('#btnPrev').click();
   await expect(page.locator('#npTitle')).toHaveText(first);
 });
 
@@ -72,4 +75,14 @@ test('the queue survives a reload', async ({ page }) => {
   await expect(page.locator('[data-testid="library"]')).toBeVisible();
   await page.getByRole('tab', { name: 'Queue' }).click();
   await expect(page.locator('.lib-row')).toHaveCount(3);
+});
+
+test('the OS media session reflects the current track', async ({ page }) => {
+  await importThree(page);
+  await page.locator('.lib-row').nth(0).click();
+  await expect(page.locator('#npTitle')).not.toHaveText('No track yet', { timeout: 15_000 });
+
+  const title = await npTitle(page);
+  await expect.poll(() => page.evaluate(() => navigator.mediaSession.metadata?.title ?? null)).toBe(title);
+  expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe('playing');
 });

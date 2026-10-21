@@ -636,6 +636,28 @@ input:focus-visible,
   flex: none;
 }
 
+/* Shuffle / repeat are toggles: light them in accent when on so the state is visible.
+   Repeat cycles off → all → one; the "1" badge marks repeat-one. */
+.np__bar .btn[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--ink);
+  border-color: var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+#btnRepeat {
+  position: relative;
+}
+#btnRepeat[data-mode='one']::after {
+  content: '1';
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* ---------- sliders ---------- */
 .row {
   display: flex;
@@ -1420,6 +1442,18 @@ input:focus-visible,
   --tabbar: 58px;
 }
 
+/* Fullscreen reclaims width for the stage: the rail collapses to icons, the tab bar slims down. */
+.bx.is-full {
+  --rail: 60px;
+  --tabbar: 46px;
+}
+.bx.is-full .navitem__t {
+  display: none;
+}
+.bx.is-full .navitem {
+  padding: 12px 4px;
+}
+
 /* Persistent navigation: a left rail on desktop, a bottom tab bar below. Unlike .chrome it never
    fades or hides on the cover screen — you can always move between Now Playing, Library and Live. */
 .nav {
@@ -1438,32 +1472,53 @@ input:focus-visible,
   border-right: 2px solid var(--ink);
 }
 .navitem {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 10px 4px;
+  gap: 6px;
+  padding: 11px 4px;
   color: var(--muted);
   background: transparent;
   border: 0;
+  border-radius: 10px;
   cursor: pointer;
   font: inherit;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  transition: color 160ms var(--ease-out);
+  transition:
+    color 160ms var(--ease-out),
+    background 160ms var(--ease-out);
 }
 .navitem .ic {
   width: 22px;
   height: 22px;
+  transition: color 160ms var(--ease-out);
 }
-.navitem:hover,
+.navitem:hover {
+  color: var(--paper);
+  background: rgba(243, 238, 227, 0.06);
+}
 .navitem[aria-pressed='true'] {
   color: var(--paper);
+  background: rgba(255, 59, 47, 0.14);
 }
 .navitem[aria-pressed='true'] .ic {
   color: var(--accent);
+}
+/* Accent marker on the active item: a left bar on the rail. */
+.navitem[aria-pressed='true']::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 28px;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
 }
 .navitem--end {
   margin-top: auto;
@@ -1510,6 +1565,15 @@ input:focus-visible,
   }
   .navitem--end {
     margin-top: 0;
+  }
+  /* On the bottom bar the active marker sits along the top edge instead of the side. */
+  .navitem[aria-pressed='true']::before {
+    left: 50%;
+    top: -1px;
+    transform: translateX(-50%);
+    width: 26px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
   }
   .dock {
     bottom: calc(20px + var(--tabbar));

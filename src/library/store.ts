@@ -423,7 +423,8 @@ export async function playTrack(track: Track, contextIds?: string[]): Promise<vo
 }
 
 export function nextTrack(): void {
-  void advance(crossfadeSec.value);
+  // A manual skip switches now; the crossfade is only for tracks that run out on their own.
+  void advance(0);
 }
 
 export function previousTrack(): void {

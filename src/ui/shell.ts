@@ -161,7 +161,6 @@ export class Shell {
     on('coverTab', () => app.pickSource('tab'));
     on('coverCalm', () => app.toggleCalm());
     on('btnHud', () => app.set({ hud: !app.state.hud }));
-    on('btnSettings', () => app.set({ drawer: !app.state.drawer }));
     on('btnClean', () => app.set({ clean: true }));
     on('btnUnclean', () => app.set({ clean: false }));
     on('btnFull', () => app.fullscreen());
@@ -214,6 +213,13 @@ export class Shell {
     byId('scrim').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) app.set({ card: null });
     });
+
+    // Collapse the nav rail to icons while in fullscreen so the stage gets the width back.
+    const onFull = (): void => {
+      this.root.classList.toggle('is-full', !!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFull);
+    onFull();
 
     for (const ev of ['pointermove', 'pointerdown', 'wheel'] as const)
       window.addEventListener(ev, () => app.poke(), { passive: true });

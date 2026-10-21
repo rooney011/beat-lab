@@ -350,9 +350,10 @@ export class App {
   }
 
   /** Transport entry for the library queue controller: play a resolved file on the deck engine. */
-  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0, meta?: PlayMeta): void {
+  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0, meta?: PlayMeta, focus = false): void {
     this.ensureAudio();
-    this.set({ screen: 'live' });
+    // Only an explicit pick pulls you to Now Playing; an auto-advance must not yank you off the library.
+    if (focus) this.set({ screen: 'live' });
     void this.loadFile(file, deck, crossfadeSec, startSec, meta);
   }
 
@@ -756,9 +757,13 @@ export class App {
     const delay = this.syncDelay();
     const a = this.sync.apply(live, t, delay);
     const st = this.state;
-    this.stage.events(a.f, t, st, this.director.now);
+    // The library screen fully covers the stage, so painting it there is wasted work — skip all
+    // drawing while it's hidden (the biggest battery saving in 1.4). Audio analysis, mood and the
+    // mini-player meter above keep running; only the canvas goes quiet.
+    const draw = st.screen !== 'library';
+    if (draw) this.stage.events(a.f, t, st, this.director.now);
     const songT = this.songTime();
-    this.stage.render({
+    if (draw) this.stage.render({
       a,
       t,
       dt,
@@ -787,7 +792,7 @@ export class App {
         });
       },
     });
-    this.strip.draw(
+    if (draw) this.strip.draw(
       a.f.bands,
       DIMS[this.director.now],
       st.layout !== 'desktop',

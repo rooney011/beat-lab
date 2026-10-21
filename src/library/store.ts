@@ -286,7 +286,15 @@ export interface PlayMeta {
 
 /** What the host app provides so the library queue can drive the deck engine. */
 export interface Transport {
-  play(file: File, deck: { id: string; gainDb: number }, crossfadeSec: number, startSec: number, meta?: PlayMeta): void;
+  /** `focus` brings the Now Playing stage forward — set only for an explicit pick, not auto-advance. */
+  play(
+    file: File,
+    deck: { id: string; gainDb: number },
+    crossfadeSec: number,
+    startSec: number,
+    meta?: PlayMeta,
+    focus?: boolean,
+  ): void;
   seek(seconds: number): void;
   position(): number;
   duration(): number;
@@ -377,7 +385,7 @@ function hasNext(): boolean {
   return queueCurrentId(queueNext(queue.value)) !== null;
 }
 
-async function playCurrent(cross: number): Promise<void> {
+async function playCurrent(cross: number, focus = false): Promise<void> {
   const id = queueCurrentId(queue.value);
   nowPlayingId.value = id;
   if (!id || !transport) {
@@ -388,7 +396,7 @@ async function playCurrent(cross: number): Promise<void> {
   if (!file) {
     // Skip an unplayable track.
     queue.value = queueNext(queue.value);
-    if (queueCurrentId(queue.value)) return playCurrent(cross);
+    if (queueCurrentId(queue.value)) return playCurrent(cross, focus);
     nowPlayingId.value = null;
     stopWatcher();
     return;
@@ -398,7 +406,7 @@ async function playCurrent(cross: number): Promise<void> {
   const startSec = id === resumeId ? resumePosition : 0;
   resumeId = null;
   resumePosition = 0;
-  transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec, metaOf(track));
+  transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec, metaOf(track), focus);
   startWatcher();
   persistSoon();
   if (track) void measureAndApply(track);
@@ -419,7 +427,8 @@ async function advance(cross: number): Promise<void> {
 export async function playTrack(track: Track, contextIds?: string[]): Promise<void> {
   const ids = contextIds && contextIds.length ? contextIds : [track.id];
   queue.value = playNow(queue.value, ids, track.id, Math.random);
-  await playCurrent(0);
+  // An explicit pick jumps to Now Playing; later auto-advances/skips leave the current screen alone.
+  await playCurrent(0, true);
 }
 
 export function nextTrack(): void {

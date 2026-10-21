@@ -1,4 +1,5 @@
 import { PlaybackEngine, type DeckTrack } from './audio/decks';
+import type { PlayMeta } from './library/store';
 import { AudioEngine } from './audio/engine';
 import { LiveSource, LiveSourceError, type LiveKind } from './audio/sources';
 import { AiMood, type AiMoodResult } from './ai/aimood';
@@ -349,10 +350,10 @@ export class App {
   }
 
   /** Transport entry for the library queue controller: play a resolved file on the deck engine. */
-  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0): void {
+  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0, meta?: PlayMeta): void {
     this.ensureAudio();
     this.set({ screen: 'live' });
-    void this.loadFile(file, deck, crossfadeSec, startSec);
+    void this.loadFile(file, deck, crossfadeSec, startSec, meta);
   }
 
   /** The deck engine's live position/length, for the queue controller's resume state and crossfade. */
@@ -387,6 +388,7 @@ export class App {
     deck: DeckTrack = { id: null, gainDb: 0 },
     crossfadeSec = 0,
     startSec = 0,
+    lib?: PlayMeta,
   ): Promise<void> {
     const ctx = this.ensureAudio();
     if (!ctx || !this.audio.input || !this.playback) return;
@@ -419,11 +421,19 @@ export class App {
         if (this.songKey === key) this.set({ playing: false });
       });
     }
-    this.set({ source: 'file', playing: true, title: file.name, card: null, requesting: null, scrub: 0, scrubMax: 1 });
+    this.set({
+      source: 'file',
+      playing: true,
+      title: lib?.title || file.name,
+      card: null,
+      requesting: null,
+      scrub: 0,
+      scrubMax: 1,
+    });
     this.beginRun(key, false);
     this.setLyrics(null, '');
     const guess = guessFromFilename(file.name);
-    this.setMeta(this.metaFrom({}, file));
+    this.setMeta(this.metaFrom({}, file, lib));
     void this.ai.analyzeFile(ctx, file, key);
     const lrc = this.pendingLrc;
     this.pendingLrc = null;
@@ -433,7 +443,7 @@ export class App {
       engine.currentTime = startSec;
       this.set({ scrub: Math.floor(startSec) });
     }
-    const meta = this.metaFrom(tags, file);
+    const meta = this.metaFrom(tags, file, lib);
     this.setMeta(meta);
     void this.cover.load(tags.pic).then((ok) => {
       if (ok && this.songKey === key) {
@@ -444,25 +454,24 @@ export class App {
       }
     });
     if (lrc) this.loadLrcFile(lrc);
-    else if (this.state.lyricsOnline)
-      void this.fetchLyrics(
-        key,
-        tags.artist
-          ? { artist: tags.artist, title: tags.title || guess.title, q: `${tags.artist} ${tags.title || guess.title}` }
-          : guess,
-        duration,
-      );
-    else this.toast('Tip: pick the song and its .lrc together for synced lyrics');
+    else if (this.state.lyricsOnline) {
+      // Prefer the library's resolved tags (the OPFS copy's own tags are the same, its name is not).
+      const artist = lib?.artist || tags.artist;
+      const title = lib?.title || tags.title || guess.title;
+      void this.fetchLyrics(key, artist ? { artist, title, q: `${artist} ${title}` } : guess, duration);
+    } else this.toast('Tip: pick the song and its .lrc together for synced lyrics');
   }
 
-  private metaFrom(tags: Tags, file: File): TrackMeta {
+  private metaFrom(tags: Tags, file: File, lib?: PlayMeta): TrackMeta {
     const g = guessFromFilename(file.name);
     const ext = (file.name.split('.').pop() || '').toUpperCase();
     return {
-      title: tags.title || g.title || file.name,
-      artist: tags.artist || g.artist || '',
-      album: tags.album || '',
-      year: tags.year || '',
+      // The library already resolved these from the original file's tags; prefer them, since the
+      // OPFS copy is named by id and loses the tags the quick file read would otherwise rely on.
+      title: lib?.title || tags.title || g.title || file.name,
+      artist: lib?.artist || tags.artist || g.artist || '',
+      album: lib?.album || tags.album || '',
+      year: (lib?.year ? String(lib.year) : '') || tags.year || '',
       fmt: ext.length <= 4 ? ext : 'FILE',
       mb: file.size ? (file.size / 1048576).toFixed(1) : '',
     };

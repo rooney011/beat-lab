@@ -453,7 +453,7 @@ export class Shell {
       this.lib = lib;
       lib.setBridge({ close: () => app.set({ screen: app.state.source ? 'live' : 'cover' }) });
       lib.setTransport({
-        play: (file, deck, crossfadeSec, startSec) => app.playTrackFile(file, deck, crossfadeSec, startSec),
+        play: (file, deck, crossfadeSec, startSec, meta) => app.playTrackFile(file, deck, crossfadeSec, startSec, meta),
         seek: (s) => app.seek(s),
         position: () => app.playbackTime(),
         duration: () => app.playbackDuration(),

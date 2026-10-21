@@ -276,9 +276,17 @@ export async function removeTrack(track: Track): Promise<void> {
 
 // ---------------------------------------------------------------- playback / queue
 
+/** The display metadata the library already resolved, so playback shows the real title, not the OPFS file name. */
+export interface PlayMeta {
+  title: string;
+  artist: string;
+  album: string;
+  year?: number;
+}
+
 /** What the host app provides so the library queue can drive the deck engine. */
 export interface Transport {
-  play(file: File, deck: { id: string; gainDb: number }, crossfadeSec: number, startSec: number): void;
+  play(file: File, deck: { id: string; gainDb: number }, crossfadeSec: number, startSec: number, meta?: PlayMeta): void;
   seek(seconds: number): void;
   position(): number;
   duration(): number;
@@ -295,6 +303,10 @@ let resumePosition = 0;
 
 function trackById(id: string): Track | undefined {
   return tracks.value.find((t) => t.id === id);
+}
+
+function metaOf(track: Track | undefined): PlayMeta | undefined {
+  return track && { title: track.title, artist: track.artist, album: track.album, year: track.year };
 }
 
 /** Best-known loudness trim: a measurement first, then a ReplayGain tag, else 0 dB. */
@@ -315,9 +327,14 @@ function bumpPlayCount(id: string): Track | undefined {
 
 // persistence
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+// Throttle, not debounce: the 500 ms crossfade watcher calls this constantly, and a debounce would
+// keep resetting and never fire. Coalesce into one write every 1.5 s, reading the latest state then.
 function persistSoon(): void {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(savePlayState, 1500);
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    savePlayState();
+  }, 1500);
 }
 function savePlayState(): void {
   const q = queue.value;
@@ -381,7 +398,7 @@ async function playCurrent(cross: number): Promise<void> {
   const startSec = id === resumeId ? resumePosition : 0;
   resumeId = null;
   resumePosition = 0;
-  transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec);
+  transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec, metaOf(track));
   startWatcher();
   persistSoon();
   if (track) void measureAndApply(track);

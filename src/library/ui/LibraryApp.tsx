@@ -1,5 +1,5 @@
 import type { JSX } from 'preact';
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { formatTime } from '../../util/math';
 import { getCover } from '../db';
 import type { Track } from '../types';
@@ -124,14 +124,42 @@ function SongRow({ track, context }: { track: Track; context: string[] }): JSX.E
   );
 }
 
+/** Fixed row height (see `.lib-row` in app.css); the window maths depends on it. */
+const ROW_H = 52;
+
+/** Windowed song list: only the rows near the viewport are mounted, so 10k songs scroll at 60 fps. */
 function SongList({ list }: { list: Track[] }): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  const [win, setWin] = useState({ start: 0, end: 40 });
+  useEffect(() => {
+    const el = ref.current;
+    const scroller = el?.closest<HTMLElement>('.library-root');
+    if (!el || !scroller) return;
+    const update = (): void => {
+      const above = Math.max(0, scroller.getBoundingClientRect().top - el.getBoundingClientRect().top);
+      const start = Math.max(0, Math.floor(above / ROW_H) - 8);
+      const count = Math.ceil(scroller.clientHeight / ROW_H) + 16;
+      setWin({ start, end: start + count });
+    };
+    update();
+    scroller.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      scroller.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [list]);
   if (!list.length) return <p class="lib-empty">No songs.</p>;
   const context = list.map((t) => t.id);
+  const start = Math.min(win.start, Math.max(0, list.length - 1));
+  const end = Math.min(list.length, win.end);
   return (
-    <div class="lib-list" role="list">
-      {list.map((t) => (
-        <SongRow key={t.id} track={t} context={context} />
-      ))}
+    <div ref={ref} class="lib-list" role="list" style={{ height: `${list.length * ROW_H}px` }}>
+      <div class="lib-list__win" style={{ transform: `translateY(${start * ROW_H}px)` }}>
+        {list.slice(start, end).map((t) => (
+          <SongRow key={t.id} track={t} context={context} />
+        ))}
+      </div>
     </div>
   );
 }

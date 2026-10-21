@@ -1786,6 +1786,9 @@ input:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* Let the browser skip off-screen cards; it caches each card's real height after first paint. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 230px;
 }
 .lib-album__title {
   font-weight: 600;
@@ -1897,13 +1900,13 @@ input:focus-visible,
   text-decoration: underline;
 }
 .lib-list {
-  display: flex;
-  flex-direction: column;
+  position: relative;
 }
 .lib-row {
   display: flex;
   align-items: center;
   gap: 12px;
+  height: 52px; /* fixed so SongList's windowing maths (ROW_H) stays exact */
   padding: 6px 8px;
   border-radius: 8px;
   cursor: pointer;

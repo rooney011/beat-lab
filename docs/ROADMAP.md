@@ -218,10 +218,10 @@ Be honest in the UI: call it "gapless" only where it really is.
 
 **Done when:**
 
-- [ ] A whole album plays through with no clicks, and handovers are near-gapless.
-- [ ] Crossfade works, and the visualizer follows it.
-- [ ] Measured tracks play within ±1 LU of the target.
-- [ ] The queue and position survive a reload.
+- [x] A whole album plays through with no clicks, and handovers are near-gapless.
+- [x] Crossfade works, and the visualizer follows it.
+- [x] Measured tracks play within ±1 LU of the target.
+- [x] The queue and position survive a reload.
 
 ### 1.3 Feels like a real app
 

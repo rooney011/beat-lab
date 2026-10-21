@@ -1412,6 +1412,212 @@ input:focus-visible,
 .library-root[hidden] {
   display: none;
 }
+
+/* ---------------------------------------------------------------- navigation + mini player (milestone 1.4) */
+
+:root {
+  --rail: 96px;
+  --tabbar: 58px;
+}
+
+/* Persistent navigation: a left rail on desktop, a bottom tab bar below. Unlike .chrome it never
+   fades or hides on the cover screen — you can always move between Now Playing, Library and Live. */
+.nav {
+  position: absolute;
+  z-index: 62;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--rail);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 8px;
+  background: var(--control);
+  border-right: 2px solid var(--ink);
+}
+.navitem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 4px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: color 160ms var(--ease-out);
+}
+.navitem .ic {
+  width: 22px;
+  height: 22px;
+}
+.navitem:hover,
+.navitem[aria-pressed='true'] {
+  color: var(--paper);
+}
+.navitem[aria-pressed='true'] .ic {
+  color: var(--accent);
+}
+.navitem--end {
+  margin-top: auto;
+}
+
+/* Keep the rail clear of the masthead, console, cover and library on desktop. */
+@media (min-width: 1200px) {
+  .mast {
+    left: calc(32px + var(--rail));
+  }
+  .pos-console {
+    left: calc(32px + var(--rail));
+  }
+  .cover,
+  .library-root {
+    left: var(--rail);
+  }
+  .hud {
+    left: calc(12px + var(--rail));
+  }
+}
+
+/* Tablet + phone: the rail becomes a bottom tab bar; bottom chrome lifts to clear it. */
+@media (max-width: 1199px) {
+  .nav {
+    flex-direction: row;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: calc(var(--tabbar) + env(safe-area-inset-bottom));
+    padding: 0 4px env(safe-area-inset-bottom);
+    border-right: 0;
+    border-top: 2px solid var(--ink);
+  }
+  .navitem {
+    flex: 1 1 0;
+    padding: 6px 2px;
+  }
+  .navitem .ic {
+    width: 20px;
+    height: 20px;
+  }
+  .navitem--end {
+    margin-top: 0;
+  }
+  .dock {
+    bottom: calc(20px + var(--tabbar));
+  }
+  .cover,
+  .library-root {
+    bottom: var(--tabbar);
+  }
+}
+@media (max-width: 767px) {
+  .dock {
+    bottom: calc(8px + var(--tabbar) + env(safe-area-inset-bottom));
+  }
+  .navitem__t {
+    font-size: 9px;
+  }
+}
+
+/* The mini player: on every screen except Now Playing, tap it to open Now Playing. */
+.mini {
+  position: absolute;
+  z-index: 61;
+  left: calc(var(--rail) + 16px);
+  right: 16px;
+  bottom: 16px;
+  max-width: 520px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--caption);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--accent);
+}
+.mini[hidden] {
+  display: none;
+}
+.mini__open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+.mini__art {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: 2px solid var(--ink);
+}
+.mini__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mini__title {
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini__artist {
+  font-size: 11px;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini__btn {
+  flex: 0 0 auto;
+  color: var(--ink);
+}
+.mini__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 2px;
+  background: rgba(11, 10, 16, 0.2);
+}
+.mini__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+@media (max-width: 1199px) {
+  .mini {
+    left: 8px;
+    right: 8px;
+    bottom: calc(8px + var(--tabbar) + env(safe-area-inset-bottom));
+    max-width: none;
+  }
+}
+
+/* Dialogs and the settings drawer sit above the persistent nav. */
+.scrim,
+.drawer {
+  z-index: 80;
+}
 .lib {
   max-width: 1100px;
   margin: 0 auto;

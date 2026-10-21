@@ -27,6 +27,52 @@
 
       <noscript><p class="fatal">BEAT LAB needs JavaScript to run.</p></noscript>
 
+      <nav id="nav" class="nav" aria-label="Primary">
+        <button id="navNow" class="navitem" type="button" aria-pressed="false">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM10 9l6 3-6 3z"></path></svg>
+          <span class="navitem__t">Now Playing</span>
+        </button>
+        <button id="navLibrary" class="navitem" type="button" aria-pressed="false">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"></path>
+          </svg>
+          <span class="navitem__t">Library</span>
+        </button>
+        <button id="navLive" class="navitem" type="button" aria-pressed="false">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 3h6v11H9zM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path>
+          </svg>
+          <span class="navitem__t">Live input</span>
+        </button>
+        <button id="navSettings" class="navitem navitem--end" type="button">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h10M18 7h2M4 17h4M12 17h8M14 5h4v4h-4zM8 15h4v4H8z"></path>
+          </svg>
+          <span class="navitem__t">Settings</span>
+        </button>
+      </nav>
+
+      <div id="mini" class="mini" hidden>
+        <button id="miniOpen" class="mini__open" type="button" aria-label="Open Now Playing">
+          <canvas id="miniArt" class="mini__art" width="96" height="96" aria-hidden="true"></canvas>
+          <span class="mini__info">
+            <span id="miniTitle" class="mini__title">No track</span>
+            <span id="miniArtist" class="mono mini__artist"></span>
+          </span>
+        </button>
+        <button id="miniPlay" class="btn btn--icon mini__btn" type="button" aria-label="Play">
+          <svg class="ic ic--fill" viewBox="0 0 24 24" aria-hidden="true">
+            <path id="miniPlayIcon" d="M7 4l13 8-13 8z"></path>
+          </svg>
+        </button>
+        <button id="miniNext" class="btn btn--icon mini__btn" type="button" aria-label="Next track">
+          <svg class="ic ic--fill" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M17 5v14h2V5zM4 5v14l11-7z"></path>
+          </svg>
+        </button>
+        <span class="mini__bar" aria-hidden="true"><span id="miniFill" class="mini__fill"></span></span>
+      </div>
+
       <section id="cover" class="cover" aria-labelledby="coverTitle">
         <p class="mono cover__slug">Run 001 · audio-reactive press</p>
         <h1 id="coverTitle" class="disp cover__name"><span>BEAT</span><span>LAB</span></h1>

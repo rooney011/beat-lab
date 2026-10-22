@@ -77,6 +77,17 @@ export interface Toast {
   tone: 'info' | 'warn';
 }
 
+/** Clip recorder UI state (Phase 3). */
+export interface ClipUi {
+  phase: 'idle' | 'countdown' | 'recording' | 'preview' | 'error';
+  /** Countdown 1→0, then recording 0→1. */
+  progress: number;
+  /** Object URL of the finished clip, for the preview <video>. */
+  url: string | null;
+  /** WebM result — warn that it may not post to some social apps. */
+  webm: boolean;
+}
+
 export interface AppState {
   screen: 'cover' | 'live' | 'library';
   leaving: boolean;
@@ -126,4 +137,8 @@ export interface AppState {
   scale: number;
   suspended: boolean;
   dragging: boolean;
+  /** Clip recorder (Phase 3). */
+  clip: ClipUi;
+  /** Record the clip without audio (copyright-safe option). */
+  visualsOnly: boolean;
 }

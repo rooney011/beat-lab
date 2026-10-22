@@ -186,6 +186,13 @@ export class Shell {
     on('btnNext', () => this.lib?.nextTrack());
     on('btnShuffle', () => this.lib?.toggleShuffle());
     on('btnRepeat', () => this.lib?.cycleRepeat());
+    on('btnClip', () => app.startClip());
+    on('btnClipDrop', () => app.clipTheDrop());
+    on('clipAudio', () => app.set({ visualsOnly: !app.state.visualsOnly }));
+    on('clipStop', () => app.stopClip());
+    on('clipShare', () => app.clipShare());
+    on('clipSave', () => app.clipSave());
+    on('clipDiscard', () => app.discardClip());
     on('btnAuto', () => app.toggleAuto());
     on('btnCalm', () => app.toggleCalm());
     on('btnCrew', () => app.toggleFx('dancers'));
@@ -353,6 +360,10 @@ export class Shell {
       byId('scrubFill').style.width = Math.round((s.scrub / Math.max(1, s.scrubMax)) * 100) + '%';
       this.drawScrubViz(s);
     }
+    byId('btnClip').closest('.np__clip')?.toggleAttribute('hidden', !isFile);
+    attr(byId('clipAudio'), 'aria-checked', String(!s.visualsOnly));
+    (byId('btnClipDrop') as HTMLButtonElement).disabled = !this.analysis?.drops.length;
+    this.renderClip(s);
     this.updateMediaSession(s, prev);
 
     // Dimensions box
@@ -569,6 +580,29 @@ export class Shell {
     set('stop', () => {
       if (app.state.playing) app.togglePlay();
     });
+  }
+
+  /** The clip overlay: 3-2-1 countdown + fill ring while recording, then the preview + share/save. */
+  private renderClip(s: AppState): void {
+    const phase = s.clip.phase;
+    byId('clip').hidden = phase === 'idle';
+    if (phase === 'idle') return;
+    const recording = phase === 'countdown' || phase === 'recording';
+    byId('clipRec').hidden = !recording;
+    byId('clipPreview').hidden = phase !== 'preview';
+    if (recording) {
+      const c = 2 * Math.PI * 54;
+      const arc = byId('clipArc'); // SVG <circle>; HTMLElement.style covers the stroke-dash props
+      const fill = phase === 'recording' ? s.clip.progress : 0;
+      arc.style.strokeDasharray = String(c);
+      arc.style.strokeDashoffset = String(c * (1 - fill));
+      text(byId('clipCount'), phase === 'countdown' ? String(Math.max(1, Math.ceil(s.clip.progress * 3))) : '');
+      text(byId('clipHint'), phase === 'countdown' ? 'Get ready…' : 'Recording…');
+    } else {
+      const video = byId<HTMLVideoElement>('clipVideo');
+      if (s.clip.url && video.src !== s.clip.url) video.src = s.clip.url;
+      text(byId('clipNote'), s.clip.webm ? 'WebM — may not post to some apps' : '');
+    }
   }
 
   /** Mirror the current track onto the OS media UI: metadata, play/pause state and the scrubber. */

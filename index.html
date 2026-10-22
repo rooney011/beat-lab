@@ -261,6 +261,20 @@
               <span id="npFill" class="np__fill" aria-hidden="true"></span>
               <span id="timeR" class="time np__rem"></span>
             </div>
+            <div class="np__clip" role="group" aria-label="Record a clip">
+              <button id="btnClip" class="btn btn--txt" type="button">Record clip</button>
+              <button id="btnClipDrop" class="btn btn--txt" type="button">Clip the drop</button>
+              <button
+                id="clipAudio"
+                class="switch"
+                type="button"
+                role="switch"
+                aria-checked="true"
+                aria-label="Record with audio"
+              >
+                <span class="switch__t" aria-hidden="true"></span><span class="label">Audio</span>
+              </button>
+            </div>
           </section>
         </div>
 
@@ -305,6 +319,30 @@
               <button class="btn btn--txt" type="button" data-sync-auto aria-pressed="true">Auto</button>
             </div>
           </section>
+        </div>
+      </div>
+
+      <div id="clip" class="clip" hidden aria-live="polite">
+        <div id="clipRec" class="clip__card" hidden>
+          <div class="clip__ring">
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="clip__ring-bg" cx="60" cy="60" r="54"></circle>
+              <circle id="clipArc" class="clip__ring-arc" cx="60" cy="60" r="54"></circle>
+            </svg>
+            <span id="clipCount" class="disp"></span>
+          </div>
+          <p id="clipHint" class="mono"></p>
+          <button id="clipStop" class="btn" type="button">Stop</button>
+        </div>
+        <div id="clipPreview" class="clip__card" hidden>
+          <video id="clipVideo" class="clip__video" playsinline controls></video>
+          <p id="clipNote" class="mono"></p>
+          <div class="clip__actions">
+            <button id="clipShare" class="btn btn--primary" type="button">Share</button>
+            <button id="clipSave" class="btn" type="button">Save</button>
+            <button id="clipDiscard" class="btn" type="button">Discard</button>
+          </div>
+          <p class="clip__rights mono">Posting copyrighted music is your responsibility.</p>
         </div>
       </div>
 

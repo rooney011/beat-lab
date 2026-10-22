@@ -124,6 +124,24 @@ export class Stage {
     return q === 'high' ? 1 : q === 'low' ? 0.6 : auto;
   }
 
+  /**
+   * Size the stage to exact pixels (no devicePixelRatio multiply) for an offscreen clip render. The
+   * stroke scale `k` is set phone-like for the clip's width so the portrait composition reads right.
+   */
+  setExactSize(w: number, h: number): void {
+    for (const c of [this.canvas, this.scene, this.temp]) {
+      c.width = w;
+      c.height = h;
+    }
+    this.k = w / 360;
+  }
+
+  /** Adopt another stage's look + current scene, so a clip stage matches the live one from frame one. */
+  syncLook(other: Stage): void {
+    this.tracker.copyFrom(other.tracker);
+    this.director.copyFrom(other.director, performance.now(), this.tracker.look);
+  }
+
   private box(s: AppState): StageBox {
     return { W: this.canvas.width, H: this.canvas.height, mob: s.layout === 'mobile' };
   }

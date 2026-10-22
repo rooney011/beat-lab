@@ -133,4 +133,6 @@ export interface PersistedPlayState {
   history: TrackId[];
   /** Crossfade length setting, in seconds. */
   crossfadeSec: number;
+  /** Auto-mix (beat-matched hand-offs) setting; defaults on when absent. */
+  autoMix?: boolean;
 }

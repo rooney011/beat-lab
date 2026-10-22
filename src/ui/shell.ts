@@ -207,6 +207,7 @@ export class Shell {
       b.addEventListener('click', () => app.toggleSyncAuto());
     for (const b of all<HTMLButtonElement>(document, '[data-cross]'))
       b.addEventListener('click', () => this.lib?.setCrossfade(this.crossSec + Number(b.dataset.cross)));
+    byId('autoMix').addEventListener('click', () => this.lib?.setAutoMix(!this.lib.autoMix.value));
     for (const b of all<HTMLButtonElement>(document, '[data-toggle]')) {
       const key = b.dataset.toggle as 'autoHide' | 'shortcuts' | 'lyricsOnline' | 'aiMood' | 'coverColours';
       b.addEventListener('click', () => app.set({ [key]: !app.state[key] }));
@@ -488,8 +489,8 @@ export class Shell {
       this.lib = lib;
       lib.setBridge({ close: () => app.set({ screen: app.state.source ? 'live' : 'cover' }) });
       lib.setTransport({
-        play: (file, deck, crossfadeSec, startSec, meta, focus) =>
-          app.playTrackFile(file, deck, crossfadeSec, startSec, meta, focus),
+        play: (file, deck, crossfadeSec, startSec, meta, focus, transition) =>
+          app.playTrackFile(file, deck, crossfadeSec, startSec, meta, focus, transition),
         seek: (s) => app.seek(s),
         position: () => app.playbackTime(),
         duration: () => app.playbackDuration(),
@@ -667,6 +668,7 @@ export class Shell {
     attr(repeat, 'aria-pressed', String(q.repeat !== 'off'));
     attr(repeat, 'data-mode', q.repeat);
     for (const el of all(document, '[data-cross-val]')) text(el, `${this.crossSec}s`);
+    attr(byId('autoMix'), 'aria-checked', String(lib.autoMix.value));
   }
 
   private renderChips(s: AppState): void {

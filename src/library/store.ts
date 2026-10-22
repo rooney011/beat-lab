@@ -3,7 +3,9 @@ import {
   deleteTrack,
   getAllFolders,
   getAllTracks,
+  getAnalysis,
   getPlayState,
+  putAnalysis,
   putCoverOnce,
   putFolder,
   putPlayState,
@@ -37,7 +39,7 @@ import {
 import { searchTracks } from './search';
 import { type DirHandleLike, type ScanEntry, type ScanStat, walk } from './scan';
 import { makeCover } from './thumb';
-import type { LinkedFolder, PersistedPlayState, Track } from './types';
+import type { LinkedFolder, PersistedPlayState, Track, TrackAnalysis } from './types';
 
 export type LibraryView = 'albums' | 'artists' | 'songs' | 'queue' | 'search';
 
@@ -305,6 +307,8 @@ export interface Transport {
 export const queue = signal<QueueState>(emptyQueue());
 export const nowPlayingId = signal<string | null>(null);
 export const crossfadeSec = signal(4);
+/** The playing track's stored analysis (null until it's analysed). Drives the 2.3 script + 2.4 seek bar. */
+export const nowPlayingAnalysis = signal<TrackAnalysis | null>(null);
 
 let transport: Transport | null = null;
 let resumeId: string | null = null;
@@ -535,20 +539,23 @@ export function setAnalysisBusy(on: boolean): void {
   if (!on) syncAnalysis(); // resume promptly when the render thread frees up
 }
 
-// One runner for the whole library: it measures the playing track first, then the upcoming queue,
-// then everything else, over idle time — replacing the old playing-track-only loudness pass. The
-// trim is applied live when the playing track's measurement arrives. 2.2 extends it to the full
-// TrackAnalysis from the same decode.
+// One runner for the whole library: it analyses the playing track first, then the upcoming queue,
+// then everything else, over idle time. "One decode, two results" — the beat grid / sections / drops
+// / key land in the analysis store, and the loudness from the same pass is stored on the track and
+// applied live as the trim when it's the playing track.
 const analysisRunner = new AnalysisRunner({
   getFile: (track) => fileForTrack(track).then((f) => f ?? null),
   isBusy: () => analysisBusy,
-  onLoudness: (track, loudness) => {
+  onResult: (track, analysis, loudness) => {
+    void putAnalysis(analysis);
+    if (nowPlayingId.value === track.id) nowPlayingAnalysis.value = analysis;
     const cur = tracks.value.find((t) => t.id === track.id) ?? track;
-    if (cur.loudness) return;
-    const updated: Track = { ...cur, loudness };
-    void putTrack(updated);
-    tracks.value = tracks.value.map((t) => (t.id === cur.id ? updated : t));
-    if (nowPlayingId.value === cur.id) transport?.setGain(measuredGainDb(loudness));
+    if (!cur.loudness) {
+      const updated: Track = { ...cur, loudness };
+      void putTrack(updated);
+      tracks.value = tracks.value.map((t) => (t.id === cur.id ? updated : t));
+      if (nowPlayingId.value === cur.id) transport?.setGain(measuredGainDb(loudness));
+    }
   },
 });
 
@@ -563,6 +570,19 @@ function syncAnalysis(): void {
 
 // Keep the runner's view of the library and queue current; it (re)starts its loop on each change.
 effect(syncAnalysis);
+
+// Load the playing track's stored analysis as it changes (a fresh analysis also updates it above).
+let analysisForId: string | null = null;
+effect(() => {
+  const id = nowPlayingId.value;
+  if (id === analysisForId) return;
+  analysisForId = id;
+  nowPlayingAnalysis.value = null;
+  if (id)
+    void getAnalysis(id).then((a) => {
+      if (nowPlayingId.value === id && a) nowPlayingAnalysis.value = a;
+    });
+});
 
 // Used only by the rescan path and tests that want the current on-disk fingerprint.
 export function statsOf(list: Track[]): ScanStat[] {

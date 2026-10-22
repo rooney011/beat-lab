@@ -59,6 +59,8 @@ export class Stage {
 
   /** Plate kick (0..1), decays over 160 ms. */
   kick = 0;
+  /** Scripted build tension (0..1): grows the camera push-in and plate misregistration. */
+  tension = 0;
   private camKick = 0;
   private camDir = 0;
   private panels: Panel[] | null = null;
@@ -171,6 +173,22 @@ export class Stage {
     this.invertOK = this.cutFlash;
   }
 
+  /**
+   * The scripted drop landing (docs/ROADMAP.md §2.3): a hard impact on Static Bloom — plate + camera
+   * kick and a spark burst, with a budgeted white flash. Calm mode cuts without the flash. The hard
+   * dimension jump itself is the caller's (App → DimensionDirector.reset), so there's no wipe.
+   */
+  dropCut(t: number, strict: boolean, calm: boolean): void {
+    this.kick = 1;
+    this.camKick = 1;
+    this.camDir = Math.random() * Math.PI * 2;
+    this.hits.sparkBurstPending = true;
+    this.cutT = t;
+    this.lastCut = t;
+    this.cutFlash = !calm && this.flashes.take(t, strict);
+    this.invertOK = this.cutFlash;
+  }
+
   private dimFor(dim: number, profile: SongProfile | null): Dim {
     const D0 = DIMS[dim];
     if (!profile?.swap) return D0;
@@ -224,7 +242,11 @@ export class Stage {
     if (this.frameNo === 0) for (let i = 0; i < this.jit.length; i++) this.jit[i] = Math.random() * 2 - 1;
     this.crew.updateClock(dt, t, f, { playing: s.playing, live, clockBpm: fr.profile?.clockBpm ?? 0, bpm: s.bpm });
     const off =
-      (s.fx.plates ? (calm ? Math.min(3, 1 + f.highs * 2) : 2 + this.kick * (4 + 6 * tr) + f.highs * 12 * tr) : 1) *
+      (s.fx.plates
+        ? calm
+          ? Math.min(3, 1 + f.highs * 2)
+          : 2 + this.kick * (4 + 6 * tr) + f.highs * 12 * tr + this.tension * 5
+        : 1) *
       k *
       (D.id === 'riso' ? 1.6 : 1);
     const R = md * (mob ? 0.2 : 0.16) * (1 + f.pulse * 0.1 * (0.5 + dose));
@@ -262,7 +284,7 @@ export class Stage {
     const ck = calm ? 0 : this.camKick * Math.max(0.4, tr);
     const shx = Math.cos(this.camDir) * ck * 10 * k;
     const shy = Math.sin(this.camDir) * ck * 10 * k;
-    const camZ = 1 + ck * 0.035 + (calm ? 0 : f.pulse * 0.015);
+    const camZ = 1 + ck * 0.035 + (calm ? 0 : f.pulse * 0.015 + this.tension * 0.03);
     const camR = calm ? 0 : Math.sin(t * 0.00025) * 0.015 + ck * 0.01;
     sc.save();
     sc.translate(W / 2 + shx, H / 2 + shy);

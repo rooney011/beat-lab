@@ -1,22 +1,23 @@
 /**
- * The background analysis runner (docs/ROADMAP.md §2.1). One job at a time: decode a track on the
- * main thread, down-mix to mono and down-sample to 22 050 Hz, hand the samples to the pure analysis
- * worker, and write the result back through the injected callbacks. The playing track is analysed
- * first, then the upcoming queue, then the rest of the library — see src/analysis/queue.ts.
+ * The background analysis runner (docs/ROADMAP.md §Phase 2). One job at a time: decode a track on
+ * the main thread, down-mix to mono and down-sample to 22 050 Hz, hand the samples to the pure
+ * analysis worker, and persist the returned TrackAnalysis (beat grid, downbeats, energy, sections,
+ * drops, key) plus its loudness through the injected callback. The playing track goes first, then
+ * the upcoming queue, then the rest of the library — see src/analysis/queue.ts.
  *
  * It pauses while the tab is hidden, and while an injected `isBusy()` says the render thread is
  * under load (on phones the host sets this while Now Playing is drawing), so analysis never fights
  * playback for the main thread. Best-effort: a decode or worker failure just marks that track done
- * so the loop moves on.
- *
- * Milestone 2.1 only produces loudness (folded in here so the whole library gets measured over idle
- * time, not just the playing track); 2.2 returns the full TrackAnalysis from the same decode.
+ * so the loop moves on. "One decode, two results": loudness comes from the same pass.
  */
-import { downsampleTo, toMono } from '../ai/resample';
+import { analyseSignal } from '../analysis/extract';
 import type { AnalyseRequest, AnalysisWorkerOut } from '../analysis/analysis-worker';
+import type { ExtractResult } from '../analysis/extract';
 import { analysisWorklist } from '../analysis/queue';
-import { measureLoudness, type LoudnessResult } from './loudness';
-import type { Track } from './types';
+import { downsampleTo, toMono } from '../ai/resample';
+import { getAnalysisVersions } from './db';
+import type { LoudnessResult } from './loudness';
+import { ANALYSIS_VERSION, type Track, type TrackAnalysis } from './types';
 
 /** The analysis decode rate: mono at 22 050 Hz halves memory (~21 MB for a 4-minute track). */
 const DECODE_RATE = 22_050;
@@ -24,8 +25,8 @@ const DECODE_RATE = 22_050;
 export interface AnalysisDeps {
   /** Resolve a track's audio file (linked folder, OPFS or blob store); null when unavailable. */
   getFile: (track: Track) => Promise<File | null>;
-  /** A measured loudness landed — persist it and apply the trim if the track is playing. */
-  onLoudness: (track: Track, loudness: LoudnessResult) => void;
+  /** A result landed — persist the analysis + loudness, and apply the trim if the track is playing. */
+  onResult: (track: Track, analysis: TrackAnalysis, loudness: LoudnessResult) => void;
   /** The render thread is under load; hold off starting the next job. */
   isBusy: () => boolean;
 }
@@ -35,11 +36,6 @@ export interface AnalysisContext {
   playingId: string | null;
   /** Upcoming queue order (next tracks). */
   queued: readonly string[];
-}
-
-/** A track is "done" once it has a measured or tag-declared loudness (milestone 2.1). */
-function hasLoudness(t: Track): boolean {
-  return !!t.loudness || t.replayGain?.track !== undefined;
 }
 
 export class AnalysisRunner {
@@ -52,15 +48,19 @@ export class AnalysisRunner {
   private playingId: string | null = null;
   private queued: readonly string[] = [];
   private byId = new Map<string, Track>();
+  /** trackId → stored version; a track is done when its version is current. */
+  private analysed = new Map<string, number>();
   /** Ids tried this session that failed to decode/analyse — skip so the loop can't spin on them. */
   private readonly failed = new Set<string>();
   private decodeCtx: OfflineAudioContext | null = null;
+  private ready = false;
   private readonly onVisibility = (): void => {
-    if (!document.hidden) this.pump();
+    if (!document.hidden) void this.pump();
   };
 
   constructor(private readonly deps: AnalysisDeps) {
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibility);
+    void this.load();
   }
 
   /** Feed the latest library/queue state and (re)start the loop. */
@@ -69,7 +69,7 @@ export class AnalysisRunner {
     this.playingId = ctx.playingId;
     this.queued = ctx.queued;
     this.byId = new Map(ctx.tracks.map((t) => [t.id, t]));
-    this.pump();
+    void this.pump();
   }
 
   dispose(): void {
@@ -81,18 +81,26 @@ export class AnalysisRunner {
 
   // ---------------------------------------------------------------- loop
 
+  private async load(): Promise<void> {
+    try {
+      this.analysed = await getAnalysisVersions();
+    } catch {
+      this.analysed = new Map();
+    }
+    this.ready = true;
+    void this.pump();
+  }
+
   private paused(): boolean {
     return (typeof document !== 'undefined' && document.hidden) || this.deps.isBusy();
   }
 
   private done(id: string): boolean {
-    if (this.failed.has(id)) return true;
-    const t = this.byId.get(id);
-    return !t || hasLoudness(t);
+    return this.failed.has(id) || !this.byId.has(id) || this.analysed.get(id) === ANALYSIS_VERSION;
   }
 
   private async pump(): Promise<void> {
-    if (this.running || this.paused()) return;
+    if (!this.ready || this.running || this.paused()) return;
     this.running = true;
     try {
       while (!this.paused()) {
@@ -123,18 +131,28 @@ export class AnalysisRunner {
     }
     try {
       const file = await this.deps.getFile(track);
-      if (!file) {
+      const mono = file ? await this.decodeMono(file) : null;
+      const result = mono ? await this.extract(mono) : null;
+      if (!result || !Number.isFinite(result.loudness.lufs)) {
         this.failed.add(id);
         return;
       }
-      const mono = await this.decodeMono(file);
-      if (!mono) {
-        this.failed.add(id);
-        return;
-      }
-      const loudness = await this.measure(mono);
-      if (loudness && Number.isFinite(loudness.lufs)) this.deps.onLoudness(track, loudness);
-      else this.failed.add(id);
+      const analysis: TrackAnalysis = {
+        trackId: track.id,
+        fileHash: track.fileHash,
+        version: ANALYSIS_VERSION,
+        beats: result.beats,
+        bpm: result.bpm,
+        beatConfidence: result.beatConfidence,
+        firstDownbeat: result.firstDownbeat,
+        energy: result.energy,
+        sections: result.sections,
+        drops: result.drops,
+        key: result.key,
+        analysedAt: Date.now(),
+      };
+      this.analysed.set(id, ANALYSIS_VERSION);
+      this.deps.onResult(track, analysis, result.loudness);
     } catch {
       this.failed.add(id);
     }
@@ -152,19 +170,19 @@ export class AnalysisRunner {
     }
   }
 
-  /** Measure in the worker; fall back to the main thread if the worker can't run. */
-  private async measure(mono: Float32Array): Promise<LoudnessResult | null> {
+  /** Extract in the worker; fall back to the main thread if the worker can't run. */
+  private async extract(mono: Float32Array): Promise<ExtractResult | null> {
     const w = this.ensureWorker();
     if (w) {
       try {
         const res = await this.post(w, mono);
-        if (res.type === 'result') return res.loudness;
+        if (res.type === 'result') return res.result;
       } catch {
         this.workerBroken = true;
       }
     }
     try {
-      return measureLoudness([mono], DECODE_RATE);
+      return analyseSignal(mono, DECODE_RATE);
     } catch {
       return null;
     }
@@ -178,7 +196,7 @@ export class AnalysisRunner {
       // /workers/ (so the Essentia worker, which needs importScripts, gets its scoped CSP). This
       // pure-DSP worker rides the same path: it has no eval, so the scoped 'unsafe-eval' goes
       // unused, and because /workers/ is excluded from the SW precache, offline analysis falls back
-      // to the main-thread measure() below. Vite inlines the measureLoudness import at build time.
+      // to the main-thread extract() below. Vite inlines the extraction code at build time.
       const w = new Worker(new URL('../analysis/analysis-worker.ts', import.meta.url), { type: 'classic' });
       w.onmessage = (e: MessageEvent<AnalysisWorkerOut>) => {
         this.pending?.resolve(e.data);
@@ -204,7 +222,7 @@ export class AnalysisRunner {
           this.pending = null;
           reject(new Error('analysis worker timeout'));
         }
-      }, 30_000);
+      }, 60_000);
       this.pending = {
         resolve: (r) => {
           clearTimeout(timer);

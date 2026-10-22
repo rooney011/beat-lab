@@ -116,7 +116,11 @@ export async function deleteAnalysis(trackId: string): Promise<void> {
   await (await db()).delete('analysis', trackId);
 }
 
-/** The track ids that already have a stored analysis record (keys only — cheap, no payloads). */
-export async function getAnalyzedIds(): Promise<Set<string>> {
-  return new Set(await (await db()).getAllKeys('analysis'));
+/**
+ * trackId → the ANALYSIS_VERSION each stored record was produced with. The runner reads this once
+ * per session to decide what still needs (re)analysis, so a version bump redoes stale results.
+ */
+export async function getAnalysisVersions(): Promise<Map<string, number>> {
+  const all = await (await db()).getAll('analysis');
+  return new Map(all.map((a) => [a.trackId, a.version]));
 }

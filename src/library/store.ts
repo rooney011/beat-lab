@@ -24,6 +24,7 @@ import {
 } from './files';
 import { AnalysisRunner } from './analysis';
 import { planTransition, type TransitionPlan } from '../analysis/mix';
+import { type EnergyArc, orderByArc, type OrderItem } from '../analysis/order';
 import { measuredGainDb, replayGainDb } from './loudness';
 import { parseMeta } from './meta';
 import {
@@ -538,6 +539,45 @@ export function cycleRepeat(): void {
 export function setCrossfade(sec: number): void {
   crossfadeSec.value = Math.max(0, Math.min(12, Math.round(sec)));
   persistSoon();
+}
+
+function meanEnergy(e: Uint8Array): number {
+  if (!e.length) return 0.5;
+  let s = 0;
+  for (let i = 0; i < e.length; i++) s += e[i];
+  return s / e.length / 255;
+}
+
+/**
+ * Reorder the upcoming queue along an energy arc (docs/ROADMAP.md §4.2). Analysed tracks are ordered
+ * by the beam search; unanalysed ones keep their place at the end. The current track stays put.
+ */
+export async function reorderByArc(arc: EnergyArc): Promise<void> {
+  const q = queue.value;
+  const upcoming = q.order.slice(q.index + 1);
+  if (upcoming.length < 2) return;
+  const items: OrderItem[] = [];
+  const unanalysed: string[] = [];
+  for (const id of upcoming) {
+    const a = await getAnalysis(id);
+    if (a && a.beats.length) {
+      items.push({
+        id,
+        bpm: a.bpm || 120,
+        camelot: a.key?.camelot,
+        energy: meanEnergy(a.energy),
+        mood: a.mood ? { arousal: a.mood.arousal, valence: a.mood.valence } : undefined,
+        artist: trackById(id)?.artist ?? '',
+      });
+    } else {
+      unanalysed.push(id);
+    }
+  }
+  if (items.length < 2) return;
+  const ordered = orderByArc(items, arc);
+  queue.value = { ...q, order: [...q.order.slice(0, q.index + 1), ...ordered, ...unanalysed] };
+  persistSoon();
+  void computePending();
 }
 
 export function setTransport(t: Transport): void {

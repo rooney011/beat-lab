@@ -687,6 +687,24 @@ input:focus-visible,
   bottom: 0;
   background: var(--ink);
 }
+/* The analysis seek bar: energy curve + section ticks + drop starbursts, drawn on a canvas. */
+.slider__viz {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  width: 100%;
+  height: 28px;
+  display: none;
+  border: 2px solid var(--ink);
+  box-sizing: border-box;
+}
+.slider.has-viz .slider__viz {
+  display: block;
+}
+.slider.has-viz .slider__track {
+  display: none;
+}
 .range {
   position: absolute;
   inset: 0;

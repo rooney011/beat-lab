@@ -98,6 +98,28 @@
           <p class="hint" id="songStatus">Simulated beat at the tempo above.</p>
         </section>
 
+        <section>
+          <h2>
+            Annotate
+            <button type="button" class="switch" id="annotate" role="switch" aria-checked="false">Off</button>
+          </h2>
+          <div class="chips" role="group" aria-label="Annotation">
+            <button type="button" id="markDrop">Drop (D)</button>
+            <button type="button" id="markSection">Section (S)</button>
+            <button type="button" id="annotClear">Clear</button>
+            <button type="button" class="btn" id="annotExport">Export JSON</button>
+            <button type="button" class="btn primary" id="annotScore">Score</button>
+          </div>
+          <label class="slider">
+            True BPM (optional)
+            <input id="trueBpm" type="number" min="0" max="300" step="0.1" value="0" />
+          </label>
+          <p class="hint" id="annotOut">
+            Play a song, then press <strong>D</strong> at each drop and <strong>S</strong> at each section change.
+            Export saves the annotation; Score runs the real analyser and compares.
+          </p>
+        </section>
+
         <p class="perf" id="perf"></p>
       </aside>
     </main>

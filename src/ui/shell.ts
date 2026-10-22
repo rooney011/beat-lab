@@ -3,6 +3,8 @@ import { LiveSource } from '../audio/sources';
 import { DIMS } from '../config/dims';
 import { MOODS } from '../config/moods';
 import type { Analysis, AppState, FxFlags, MotionPref, Quality, SourceId } from '../types';
+import type { TrackAnalysis } from '../library/types';
+import { formatTime } from '../util/math';
 import { ListeningOrb } from './listening-orb';
 import { renderCard } from './cards';
 import { all, attr, byId, h, ICONS, text } from './dom';
@@ -62,6 +64,8 @@ export class Shell {
   /** Where focus was before a dialog or the drawer opened, so it can go back there. */
   private returnFocus: HTMLElement | null = null;
   private scrubbing = false;
+  /** The playing track's analysis, for the energy-curve seek bar + BPM/key/drop chips (null if none). */
+  private analysis: TrackAnalysis | null = null;
   private libMounted = false;
   /** The lazily-loaded library/playback module (null until the library screen is first opened). */
   private lib: typeof import('../library/store') | null = null;
@@ -347,6 +351,7 @@ export class Shell {
       if (!this.scrubbing) scrub.value = String(s.scrub);
       attr(scrub, 'aria-valuetext', `${s.timeL} of ${s.scrubMax} seconds`);
       byId('scrubFill').style.width = Math.round((s.scrub / Math.max(1, s.scrubMax)) * 100) + '%';
+      this.drawScrubViz(s);
     }
     this.updateMediaSession(s, prev);
 
@@ -481,8 +486,15 @@ export class Shell {
       });
       app.queueHooks = { ended: () => lib.onQueueEnded(), external: () => lib.onExternalPlay() };
       lib.subscribePlayback(() => this.renderTransport());
-      // Feed the playing track's analysis to the stage script (null until it's analysed).
-      lib.nowPlayingAnalysis.subscribe((a) => app.setAnalysis(a));
+      // Feed the playing track's analysis to the stage script (null until it's analysed), and refresh
+      // the energy-curve seek bar + info chips when it lands.
+      lib.nowPlayingAnalysis.subscribe((a) => {
+        app.setAnalysis(a);
+        this.analysis = a;
+        const s = app.state;
+        this.renderChips(s);
+        this.drawScrubViz(s);
+      });
       const { mountLibrary } = await import('../library/mount');
       mountLibrary(byId('library-root'));
       this.renderTransport();
@@ -633,6 +645,11 @@ export class Shell {
     if (s.bpm) chips.push([`${s.bpm} BPM`, '']);
     if (s.source === 'file')
       chips.push([s.lyricSrc ? `Lyrics · ${s.lyricSrc}` : 'No lyrics', s.lyricSrc ? 'is-ink' : '']);
+    const a = this.analysis;
+    if (s.source === 'file' && a) {
+      if (a.key) chips.push([`${a.key.tonic} ${a.key.scale === 'minor' ? 'min' : 'maj'} · ${a.key.camelot}`, 'is-ink']);
+      if (a.drops.length) chips.push([`Drop ${formatTime(a.drops[0].time)}`, 'is-ink']);
+    }
     if (s.meta.mb) chips.push([`${s.meta.fmt} · ${s.meta.mb} MB`, '']);
     const els = chips.map(([label, cls]) => h('span', { class: 'chip-s ' + cls }, label));
     byId('npChips').replaceChildren(...els);
@@ -641,6 +658,96 @@ export class Shell {
       els[0].prepend(this.orb.el);
       this.orbColor = getComputedStyle(els[0]).color || this.orbColor;
     }
+  }
+
+  /**
+   * Paint the seek bar as the track's energy curve, with section ticks, drop starbursts and a
+   * playhead (docs/ROADMAP.md §2.4). Falls back to the plain fill when there's no analysis — the
+   * `<input>` on top still handles seeking either way.
+   */
+  private drawScrubViz(s: AppState): void {
+    const wrap = byId('scrubWrap');
+    const a = this.analysis;
+    const ok = s.source === 'file' && !!a && a.energy.length > 1 && a.beats.length > 1 && s.scrubMax > 0;
+    wrap.classList.toggle('has-viz', ok);
+    if (!ok || !a) return;
+    const canvas = byId<HTMLCanvasElement>('scrubViz');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = Math.max(8, Math.round(canvas.clientWidth * dpr));
+    const H = Math.max(8, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width = W;
+      canvas.height = H;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const style = getComputedStyle(this.root);
+    const ink = style.getPropertyValue('--ink').trim() || '#17141f';
+    const accent = style.getPropertyValue('--accent').trim() || ink;
+    const dur = s.scrubMax;
+    const pad = 2 * dpr;
+    const innerH = H - 2 * pad;
+    const xOf = (sec: number): number => pad + (Math.max(0, Math.min(dur, sec)) / dur) * (W - 2 * pad);
+    ctx.clearRect(0, 0, W, H);
+
+    // Energy curve as a filled area.
+    const n = a.energy.length;
+    ctx.beginPath();
+    ctx.moveTo(pad, H - pad);
+    for (let i = 0; i < n; i++) {
+      const sec = a.beats[Math.min(i, a.beats.length - 1)];
+      ctx.lineTo(xOf(sec), pad + (1 - a.energy[i] / 255) * innerH);
+    }
+    ctx.lineTo(W - pad, H - pad);
+    ctx.closePath();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = ink;
+    ctx.fill();
+
+    // Played portion tinted up to the playhead.
+    const px = xOf(s.scrub);
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = accent;
+    ctx.fillRect(pad, pad, Math.max(0, px - pad), innerH);
+
+    // Section boundary ticks.
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = dpr;
+    for (const sec of a.sections) {
+      if (sec.start <= 0) continue;
+      const sx = xOf(sec.start);
+      ctx.beginPath();
+      ctx.moveTo(sx, pad);
+      ctx.lineTo(sx, H - pad);
+      ctx.stroke();
+    }
+
+    // Drops: a small starburst.
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.5 * dpr;
+    const r = 3 * dpr;
+    for (const d of a.drops) {
+      const dx = xOf(d.time);
+      const dy = pad + innerH * 0.28;
+      for (let k = 0; k < 4; k++) {
+        const ang = (k / 4) * Math.PI;
+        ctx.beginPath();
+        ctx.moveTo(dx - Math.cos(ang) * r, dy - Math.sin(ang) * r);
+        ctx.lineTo(dx + Math.cos(ang) * r, dy + Math.sin(ang) * r);
+        ctx.stroke();
+      }
+    }
+
+    // Playhead.
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, H);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   /** Per-frame: the cover art bumps on the kick and the mini meter follows the spectrum. */

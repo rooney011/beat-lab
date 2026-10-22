@@ -75,7 +75,11 @@ export class Shell {
   constructor(private readonly app: App) {
     this.build();
     this.bind();
-    app.store.subscribe((s, prev) => this.render(s, prev));
+    app.store.subscribe((s, prev) => {
+      this.render(s, prev);
+      // On phones, hold background analysis off the main thread while Now Playing is drawing.
+      this.lib?.setAnalysisBusy(s.screen === 'live' && s.playing && s.layout === 'mobile');
+    });
     app.onFrame = (a) => this.frame(a);
     this.render(app.state, null);
     setInterval(() => this.updateHud(), 200);

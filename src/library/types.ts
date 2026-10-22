@@ -1,5 +1,7 @@
 /** The persisted library model (IndexedDB). See docs/ROADMAP.md milestone 1.1 and its appendix. */
 
+import type { MoodId } from '../types';
+
 export type TrackId = string;
 export type TrackSource = 'folder' | 'import';
 
@@ -51,6 +53,73 @@ export interface LinkedFolder {
   name: string;
   handle: FileSystemDirectoryHandle;
   lastScanAt?: number;
+}
+
+/**
+ * Per-track analysis computed once in the background (docs/ROADMAP.md §Phase 2 and its appendix).
+ * Bump `ANALYSIS_VERSION` when an algorithm changes; the queue redoes stale records.
+ *
+ * Milestone 2.1 only measures loudness (stored on `Track.loudness`); the extraction fields below
+ * are filled in 2.2. Until then `beatConfidence` stays 0, and every consumer requires it to be at
+ * least 0.5 before trusting the grid/script — so an unanalysed track falls back to reactive visuals.
+ */
+export const ANALYSIS_VERSION = 1;
+
+export type SectionKind = 'intro' | 'verse' | 'build' | 'drop' | 'breakdown' | 'outro' | 'other';
+
+export interface AnalysisSection {
+  /** Seconds. */
+  start: number;
+  end: number;
+  kind: SectionKind;
+  /** Mean energy, 0..1. */
+  energy: number;
+  /** 0..1. */
+  confidence: number;
+}
+
+export interface AnalysisDrop {
+  /** Seconds. */
+  time: number;
+  /** 0..1. */
+  confidence: number;
+}
+
+export interface AnalysisMood {
+  id: MoodId;
+  arousal: number;
+  valence: number;
+  confidence: number;
+}
+
+export interface AnalysisKey {
+  /** Tonic note, e.g. "C#". */
+  tonic: string;
+  scale: 'major' | 'minor';
+  /** Camelot wheel code, e.g. "8A". */
+  camelot: string;
+}
+
+export interface TrackAnalysis {
+  trackId: TrackId;
+  /** The analysed file's fingerprint; lets a re-imported file reuse its result (Phase 5). */
+  fileHash: string;
+  version: number;
+  /** Beat grid in seconds. Empty until 2.2. */
+  beats: Float32Array;
+  /** Detected tempo; 0 when not yet computed. */
+  bpm: number;
+  /** 0..1; consumers require >= 0.5 before trusting the grid or script. */
+  beatConfidence: number;
+  /** Index into `beats` of the first downbeat. */
+  firstDownbeat: number;
+  /** 0..255 per beat. */
+  energy: Uint8Array;
+  sections: AnalysisSection[];
+  drops: AnalysisDrop[];
+  mood?: AnalysisMood;
+  key?: AnalysisKey;
+  analysedAt: number;
 }
 
 /** The queue + position saved so the app resumes where you left off (paused) after a reload. */

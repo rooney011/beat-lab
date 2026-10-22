@@ -1,8 +1,8 @@
 # BEAT LAB
 
-**Play music and watch a comic-book print run misfire in time with it.**
+**A browser music player that watches a comic-book print run misfire in time with your songs — and knows each track well enough to see the drop coming.**
 
-BEAT LAB is an audio-reactive visualizer for the browser. It listens to a song, your microphone or a browser tab, finds the beats, reads the song's mood, and prints the result as halftone comic art: misregistered ink plates, panel cuts on big hits, sound words, synced lyric captions and a small crew of ink figures dancing on the beat.
+BEAT LAB is a fully client-side music player and audio-reactive visualizer. Add your library, and it plays a proper queue while a Canvas 2D "stage" prints the music as halftone comic art: misregistered ink plates, panel cuts on big hits, sound words, synced lyrics and a small crew of ink figures dancing on the beat. It analyses every track once, on your device, so the visuals can **anticipate** — building tension through a riser and hard-cutting on the exact beat of a drop — and it mixes tracks together like a DJ. Nothing you listen to ever leaves the browser.
 
 ![The stage in Static Bloom](docs/stage-static-bloom.jpg)
 
@@ -10,115 +10,119 @@ BEAT LAB is an audio-reactive visualizer for the browser. It listens to a song, 
 | ------------------------ | -------------------------------------- | ------------------------ |
 | ![Cover](docs/cover.jpg) | ![Pressline](docs/stage-pressline.jpg) | ![Phone](docs/phone.jpg) |
 
-## Features
+> New here for an interview or a walkthrough? Read **[docs/CASE-STUDY.md](docs/CASE-STUDY.md)** — it explains the hard problems, the architecture and the decisions behind them.
 
-- **Three inputs.** Your own files (MP3, M4A, WAV, OGG, FLAC), the microphone, or a shared browser tab (Chrome and Edge on desktop).
-- **Beat detection** tuned for kicks: spectral flux over 20–280 Hz with an adaptive threshold, gated by kick-band share and a 2-frame power rise. Snares and hi-hats drive their own effects.
-- **Four "dimensions"** that step up with the song's energy (Inkfall → Riso Heat → Pressline → Static Bloom). Each step adds layers rather than turning the same ones up. Changes land on a strong beat.
-- **Mood reading, two ways.** A quick read with no model lands at 8 s (tempo, onset density and punch give arousal; spectral tilt gives valence). Then, on by default, a real pre-trained model runs on your device — Essentia.js MusiCNN mood classifiers in a Web Worker — hears the audio and takes over. A chip shows which read is live ("Mood · AI" or "Mood · quick read"). The mood picks the background, the dancers' style and how lyrics animate.
-- **Synced lyrics** from a `.lrc` file you drop with the song, or looked up on [LRCLIB](https://lrclib.net) by artist and title. Words light up on their own timing or on an eighth-note grid.
-- **Now-playing card** with title, artist, album and embedded cover art (ID3, MP4 and FLAC tags), or a generated comic cover.
-- **Visual sync delay** for Bluetooth headphones: estimated from the output latency the browser reports, adjustable in 20 ms steps.
-- **Photosensitivity guards** that can't be switched off: full-frame flashes are rationed to 3 per second (1 in strict mode), and a luminance monitor dims the stage if it flickers too much. Calm mode limits motion and effects.
-- **Keyboard-first**: press `?` on the stage for every shortcut. Settings persist across visits.
+## What it does
+
+### The player
+
+- **Your library, stored once.** Link a folder (Chrome/Edge) or import files anywhere; tracks and covers persist in **IndexedDB**, imported audio in the **Origin Private File System**. Tags, cover art and ReplayGain are read with `music-metadata`; covers are deduplicated by image hash and thumbnailed. Browse by album, artist, song or playlist, and search (accent-folded, in-memory).
+- **A real queue.** Shuffle (Fisher–Yates with history, so Previous walks back what actually played), repeat off/all/one, and a two-deck engine that streams from disk and crossfades between tracks. The queue and position survive a reload.
+- **Loudness levelling** to −14 LUFS: ReplayGain tags when present, otherwise a BS.1770 meter measures each track in the background. A limiter guards the ceiling.
+- **Feels like an app.** Lock-screen and media-key controls (Media Session), an installable PWA that opens offline (service worker), a responsive shell (desktop sidebar / phone bottom-tabs) with a mini player, and virtualised lists that scroll 10,000 songs at 60 fps.
+
+### The visualizer
+
+- **Three inputs.** Library files, the microphone, or a shared browser tab — all through one Web Audio graph into the analysers, so the picture always matches what you hear.
+- **Four "dimensions"** that step up with energy (Inkfall → Riso Heat → Pressline → Static Bloom); each step adds layers rather than turning the same ones up, and changes land on a strong beat.
+- **Mood, read on device.** A rule-based quick read lands at ~8 s; then Essentia.js MusiCNN mood classifiers run in a Web Worker and take over. Mood picks the background scene, the dancers' style and how lyrics animate.
+- **Synced lyrics** from a dropped `.lrc` or looked up on [LRCLIB](https://lrclib.net).
+
+### See the drop coming
+
+- **Every track is analysed once, in the background** (a throttled queue that pauses when the tab is hidden): beat grid, downbeats, a per-beat energy curve, sections (intro/verse/build/drop/breakdown/outro), **drops**, musical **key**, and loudness — all from one decode, by deterministic in-browser DSP.
+- **The stage plays from that script.** With a latency-compensated song clock it holds the ladder through a build, counts the bar in ("WAIT FOR IT… 3… 2… 1"), and **hard-cuts to Static Bloom on the exact beat of the drop** — instead of reacting a frame late.
+- **The seek bar is the energy curve**, with section ticks and drop starbursts, plus BPM / key / "Drop at 1:12".
+
+### Share a clip
+
+- One tap records **~15 s of Now Playing as a portrait video with its audio** — a bespoke 9:16 render (second stage), 3-2-1 countdown, a filling ring, then a preview to **Share** (`navigator.share`) or save. **"Clip the drop"** starts 5 s before the drop. A "visuals only" option and a one-line copyright note; recording always uses the strict flash budget.
+
+### Auto-mix
+
+- **Beat-matched transitions.** On shuffle/playlist auto-advance, tempo-compatible analysed tracks hand off like a DJ set: tempo-matched at the nearest octave (`preservesPitch`), started on the outgoing track's downbeat, phase-locked (±0.5 %) for the first bars, with a low-shelf **bass swap** on a downbeat. Mismatched tracks fall back to a clean crossfade.
+- **Order by mood and energy.** A seeded beam search sequences the queue along an energy arc (warm-up → peak → cool-down / steady / build), balancing tempo, key, energy and artist spacing.
+
+### Safety & privacy (not optional)
+
+- **Photosensitivity guards** that can't be switched off: full-frame flashes are rationed (3/s, 1/s in strict mode and while recording), and a luminance monitor dims the stage if it flickers too much. Calm mode limits motion and honours `prefers-reduced-motion`.
+- **Audio never leaves your device.** The only network request is the optional LRCLIB lyrics lookup (artist + title + duration), switchable off. The mood model and its files are self-hosted.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  S["Sources<br/>file · mic · tab"] --> E["AudioEngine<br/>input → 2 AnalyserNodes"]
-  E --> F["FeatureExtractor<br/>beats · pulse · bands · bars · string"]
-  F --> M["MoodReader<br/>tempo · arousal · valence"]
-  F --> L["DimensionDirector<br/>auto ladder"]
-  F --> D["SyncDelay<br/>hold frames for output latency"]
-  D --> R["Stage<br/>layers → camera → panels → lyrics → safety"]
+  subgraph live[Per frame · live]
+    S["Sources<br/>file · mic · tab"] --> E["AudioEngine<br/>mix bus → 2 AnalyserNodes"]
+    E --> F["FeatureExtractor<br/>beats · bands · bars"]
+    F --> MS["MoodReader + DimensionDirector"]
+    F --> SC["ScriptDirector<br/>(when analysed)"]
+    MS --> SY["SyncDelay"]
+    SC --> SY
+    SY --> R["Stage<br/>layers → camera → panels → safety"]
+  end
+  subgraph bg[Background · once per track]
+    DEC["decode → mono 22.05 kHz"] --> W["analysis worker<br/>FFT · onsets · tempo · beats<br/>sections · drops · key · loudness"]
+    W --> DB[("IndexedDB<br/>TrackAnalysis")]
+  end
+  DB -.->|drives| SC
 ```
 
-Each animation frame the app reads both analysers, turns them into a `Features` record (`src/analysis/features.ts`), lets the mood reader and the dimension ladder react to the live audio, then passes the frame through the sync delay so the picture can be held back to match what you hear. The `Stage` (`src/render/stage.ts`) draws the layers into an off-screen scene under a "camera" (beat shake, slow roll, pulse zoom), composites it whole or re-cut into comic panels, then adds lyrics, dimension wipes and the safety checks.
-
-**Beats.** Positive spectral flux in the low band must clear `mean × 1.5 + 0.01` of the last 42 frames, the kick band (30–150 Hz) must carry more than −28 dB of total power, and kick power must have risen at least 1.5 dB over two frames. A 230 ms refractory window applies, but a clearly stronger onset replaces a weaker one inside it.
-
-**Dancers.** The ink crew dances on a beat clock: a phase-locked loop that free-runs at the estimated tempo and is pulled toward each detected beat.
-
-**Audio stays on your device.** Nothing is recorded or uploaded. The only network request is the optional lyrics lookup, which sends artist, title and duration to LRCLIB (switch it off in Settings).
+The controller (`src/app.ts`) runs the frame loop: read the analysers → `FeatureExtractor` → mood + the dimension ladder (or, for an analysed file, the `ScriptDirector`) → `SyncDelay` → `Stage`. Separately, a background runner (`src/library/analysis.ts`) decodes each library track once, hands the mono signal to a pure-DSP **analysis worker** (`src/analysis/extract/`), and stores a `TrackAnalysis` in IndexedDB; the stage and the beat-matcher read it back. See **[docs/CASE-STUDY.md](docs/CASE-STUDY.md)** for the deep dive.
 
 ## Tech
 
-TypeScript (strict), Vite, Canvas 2D and the Web Audio API. No npm runtime dependencies besides the self-hosted fonts; the optional on-device mood model self-hosts Essentia.js and TensorFlow.js (loaded in a Web Worker) under `public/models`. Unit tests run on Vitest; end-to-end and beat-sync tests run on Playwright in Chromium.
+TypeScript (strict), Vite, Canvas 2D and the Web Audio API. The library/player screens use **Preact + `@preact/signals`**; storage is **`idb`** + OPFS; tags via **`music-metadata`**. The on-device mood model self-hosts **Essentia.js + TensorFlow.js** in a Web Worker. Everything else — beat tracking, section/drop/key detection, loudness, transition planning, ordering — is **own, deterministic TypeScript DSP**, so it's unit-tested against fixed numbers. Unit tests on Vitest; end-to-end + beat-sync regression on Playwright (Chromium).
 
 ```
 src/
-  app.ts               controller: sources, frame loop, actions
-  audio/               AudioEngine, file / mic / tab sources
-  ai/                  on-device mood model: resampler, mapping, worker manager
-  analysis/            features, mood, sync delay, dimension ladder
-  lyrics/              LRC parser, LRCLIB client, caption renderer
-  meta/                tag parser (ID3, MP4, FLAC), cover art
-  render/              stage, layers, patterns, safety, band strip
-  ui/                  DOM shell, dialogs
-tests/
-  unit/                Vitest
-  e2e/                 Playwright: UI flows and beat-sync regression
-  harness/             offline analysis page used by the beat-sync tests
-  fixtures/            synthetic test tracks and tagged files
+  app.ts               controller: sources, frame loop, clips, actions
+  audio/               AudioEngine, two-deck PlaybackEngine (crossfade + beat-match), sources
+  analysis/            live features, mood, sync, dimension ladder, script director,
+                       transition planner (mix), phase-lock, ordering, metrics
+    extract/           offline DSP: fft, spectral (chroma/MFCC), rhythm, structure, key
+  library/             IndexedDB, OPFS/files, scan, meta, thumbs, queue, store (signals),
+                       loudness (BS.1770), analysis runner, Preact UI
+  clip/                clip recorder (studio) + format helpers
+  render/              stage, layers, scenes, patterns, safety, band strip
+  ai/                  on-device mood model: resampler, mapping, Essentia worker
+  lyrics/ meta/ ui/    LRC + LRCLIB, tag/cover parsing, DOM shell
+tests/  unit (Vitest) · e2e + beat-sync (Playwright) · harness · fixtures
 ```
 
 ## Run it locally
 
-Requires Node 20.19 or later.
+Requires Node 20.19+.
 
 ```bash
 npm ci
 npm run dev          # http://localhost:5173
-```
-
-```bash
 npm run check        # typecheck + lint + unit tests
-npx playwright install chromium
-npm run test:e2e     # builds the site, then runs UI and beat-sync tests
+npm run test:e2e     # builds, serves the production build, runs Playwright
 ```
 
-`npm run dev` also serves the **Scene Lab** at <http://localhost:5173/tools/scene-lab/>, a dev-only page for previewing every background scene against a simulated beat or a real song.
-It is not part of `vite build` — see [`docs/scenes.md`](docs/scenes.md) for how scenes are chosen.
+`npm run dev` also serves the dev-only **Scene Lab** at `/tools/scene-lab/` — preview background scenes, and **annotate** a song (press `D` at drops, `S` at sections) to score the analyser (see [docs/analysis-results.md](docs/analysis-results.md)). It is excluded from `vite build`.
 
-The beat-sync tests render each fixture track sample-accurately through an `OfflineAudioContext` and score the real analysis code against the known kick grid:
+## Deploy & security
 
-| Track     | Kicks caught | Mean latency | Extra beats | Dancer clock error |
-| --------- | ------------ | ------------ | ----------- | ------------------ |
-| Hype, 128 | 100%         | 14 ms        | 1           | 16 ms              |
-| Grit, 150 | 100%         | 27 ms        | 3           | 26 ms              |
-| Dreamy    | no kicks     | —            | 0           | —                  |
-
-## Deploy
-
-The site is fully static. On **Vercel**: import the repository, keep the detected Vite settings, deploy. `vercel.json` adds caching and security headers. The **page** Content-Security-Policy stays strict — `script-src 'self'`, no `eval`, no inline scripts, and only `lrclib.net` allowed for lyrics. The on-device model needs `eval` (Essentia.js is built with emscripten embind, which uses `new Function`), so its Web Worker is emitted to `/workers/` and served a **separate, worker-only** CSP with `'unsafe-eval' 'wasm-unsafe-eval'`; a dedicated worker runs under the policy of its own response, so that permission never reaches the page. The page rule excludes `/workers/` (`source: "/((?!workers/).*)"`) so the two policies don't stack. `vite preview` serves the same per-path headers (via a small middleware in `vite.config.ts`) so the end-to-end tests run under them.
-
-Any other static host works too: run `npm run build` and publish `dist/`. If the site lives under a sub-path (a GitHub Pages project site, say), build with `npx vite build --base=/beat-lab/`. Serve it over HTTPS, because browsers only allow microphone and tab capture on secure origins.
+The site is fully static (`npm run build` → `dist/`; deploys to Vercel as-is). The **page** Content-Security-Policy stays strict — `script-src 'self'`, no `eval`, no inline scripts, only `lrclib.net` on `connect-src`. Essentia.js needs `eval` (emscripten embind), so **only its Web Worker** is served a scoped `'unsafe-eval'`/`'wasm-unsafe-eval'` policy from `/workers/`; a dedicated worker runs under its own response's CSP, so that permission never reaches the page. `vite preview` serves the same per-path headers so the e2e tests run under production policy. Serve over HTTPS (mic/tab capture require a secure origin).
 
 ## Browser support
 
-|                          | Chrome / Edge (desktop) | Firefox | Safari  | Mobile browsers |
-| ------------------------ | ----------------------- | ------- | ------- | --------------- |
-| Files, mic               | yes                     | yes     | yes     | yes             |
-| Tab audio                | yes                     | no      | no      | no              |
-| Auto sync-delay estimate | yes                     | yes     | partial | varies          |
+|                               | Chrome / Edge (desktop) | Firefox   | Safari | Mobile         |
+| ----------------------------- | ----------------------- | --------- | ------ | -------------- |
+| Import files, play, visualise | yes                     | yes       | yes    | yes            |
+| Link a music folder           | yes                     | no        | no     | Android: check |
+| Lock-screen / media keys      | yes                     | yes       | yes    | yes            |
+| Tab audio                     | yes                     | no        | no     | no             |
+| Record / share a clip         | yes (MP4 OS-dependent)  | WebM only | yes    | yes            |
 
-Where the browser doesn't report output latency, set the sync delay by hand with `,` and `.`.
+## Roadmap
 
-## Credits
+Phases 1–4 are built: **player core**, **see the drop coming** (analysis + script), **share a clip**, and **auto-mix** (beat-matched transitions + mood/energy ordering). Phase 5 (optional accounts/sync for playlists, settings and analysis — never audio files) is designed in [docs/ROADMAP.md](docs/ROADMAP.md) but not implemented.
 
-All artwork is procedural and original. The listening globe is inspired by [thinking-orbs](https://github.com/RareFormLabs/thinking-orbs) by Jakub Antalik (MIT); no code was copied, so no licence file is needed. Fonts: [Archivo](https://github.com/Omnibus-Type/Archivo), [Dela Gothic One](https://fonts.google.com/specimen/Dela+Gothic+One) and [Space Mono](https://fonts.google.com/specimen/Space+Mono), all under the SIL Open Font License. Synced lyrics courtesy of [LRCLIB](https://lrclib.net).
+## Credits & licence
 
-## Licences
+Artwork is procedural and original; the listening globe is inspired by [thinking-orbs](https://github.com/RareFormLabs/thinking-orbs) (MIT, no code copied). Fonts: Archivo, Dela Gothic One, Space Mono (SIL OFL). Lyrics from [LRCLIB](https://lrclib.net).
 
-BEAT LAB's code is released under the **GNU Affero General Public License v3.0** (`AGPL-3.0-only`); see [LICENSE](LICENSE). The project is AGPL because the on-device mood model depends on Essentia.js (AGPL-3.0).
-
-The AI mood reading runs entirely in your browser; nothing is fetched from third parties at runtime. It bundles, self-hosted under `public/models`:
-
-- **[Essentia.js](https://mtg.github.io/essentia.js/)** — feature extraction and the TensorFlow.js model add-on, by the **Music Technology Group, Universitat Pompeu Fabra (MTG/UPF)**. Licence: **AGPL-3.0**.
-- Four pre-trained **MusiCNN-MSD mood classifiers** (`mood_happy`, `mood_sad`, `mood_aggressive`, `mood_relaxed`) from the [Essentia models](https://essentia.upf.edu/models.html) collection, by MTG/UPF. Licence: **Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 (CC BY-NC-ND 4.0) — non-commercial use only.** Total model download ≈ **12.8 MB** (four files, ~3.2 MB each), fetched once and cached.
-- **[TensorFlow.js](https://www.tensorflow.org/js)** 3.5.0 (core + WASM backend), by Google. Licence: Apache-2.0.
-
-Attribution and full terms: [`public/models/ATTRIBUTION.md`](public/models/ATTRIBUTION.md) and [`public/models/LICENSE`](public/models/LICENSE).
-
-Because the models are non-commercial, this project as a whole is for non-commercial use.
+Code is **AGPL-3.0-only** (because of Essentia.js); see [LICENSE](LICENSE). The bundled, self-hosted mood model is **Essentia.js** (AGPL-3.0, MTG/UPF), four **MusiCNN-MSD** classifiers (**CC BY-NC-ND 4.0 — non-commercial**, MTG/UPF), and **TensorFlow.js** (Apache-2.0). Because the models are non-commercial, the project as a whole is for non-commercial use. Full terms: [`public/models/ATTRIBUTION.md`](public/models/ATTRIBUTION.md).

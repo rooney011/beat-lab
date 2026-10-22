@@ -1,5 +1,5 @@
 import type { JSX } from 'preact';
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { formatTime } from '../../util/math';
 import { getCover } from '../db';
 import type { Track } from '../types';
@@ -19,6 +19,7 @@ import {
   removeTrack,
   results,
   scan,
+  shufflePlay,
   splitAlbumKey,
   storage,
   tracks,
@@ -57,16 +58,31 @@ function CoverImg({ track, size }: { track: Track; size: number }): JSX.Element 
       alive = false;
     };
   }, [track.coverId]);
-  const initials = (track.title || '?').slice(0, 1).toUpperCase() + (track.artist || '').slice(0, 1).toUpperCase();
+  // No art: print a generated comic cover instead — a seeded colour plate, big initial and issue number.
+  const seed = coverSeed(track);
+  const initial = (track.album || track.title || '?').slice(0, 1).toUpperCase();
   return (
     <span class="lib-cover" style={{ width: `${size}px`, height: `${size}px` }}>
       {url ? (
         <img class="lib-cover__img" src={url} alt="" width={size} height={size} />
       ) : (
-        <span class="lib-cover__ph">{initials}</span>
+        <span class={`lib-cover__ph lib-cover__ph--v${seed % 4}`} aria-hidden="true">
+          <span class="lib-cover__initial" style={{ fontSize: `${Math.round(size * 0.5)}px` }}>
+            {initial}
+          </span>
+          {size >= 80 && <span class="lib-cover__issue mono">#{String((seed % 99) + 1).padStart(2, '0')}</span>}
+        </span>
       )}
     </span>
   );
+}
+
+/** A stable non-negative seed from a track's album/artist, so its generated cover never changes. */
+function coverSeed(track: Track): number {
+  const s = `${track.album || track.title || ''}${track.albumArtist || track.artist || ''}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
 }
 
 // ---------------------------------------------------------------- rows and grids
@@ -108,14 +124,42 @@ function SongRow({ track, context }: { track: Track; context: string[] }): JSX.E
   );
 }
 
+/** Fixed row height (see `.lib-row` in app.css); the window maths depends on it. */
+const ROW_H = 52;
+
+/** Windowed song list: only the rows near the viewport are mounted, so 10k songs scroll at 60 fps. */
 function SongList({ list }: { list: Track[] }): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  const [win, setWin] = useState({ start: 0, end: 40 });
+  useEffect(() => {
+    const el = ref.current;
+    const scroller = el?.closest<HTMLElement>('.library-root');
+    if (!el || !scroller) return;
+    const update = (): void => {
+      const above = Math.max(0, scroller.getBoundingClientRect().top - el.getBoundingClientRect().top);
+      const start = Math.max(0, Math.floor(above / ROW_H) - 8);
+      const count = Math.ceil(scroller.clientHeight / ROW_H) + 16;
+      setWin({ start, end: start + count });
+    };
+    update();
+    scroller.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      scroller.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [list]);
   if (!list.length) return <p class="lib-empty">No songs.</p>;
   const context = list.map((t) => t.id);
+  const start = Math.min(win.start, Math.max(0, list.length - 1));
+  const end = Math.min(list.length, win.end);
   return (
-    <div class="lib-list" role="list">
-      {list.map((t) => (
-        <SongRow key={t.id} track={t} context={context} />
-      ))}
+    <div ref={ref} class="lib-list" role="list" style={{ height: `${list.length * ROW_H}px` }}>
+      <div class="lib-list__win" style={{ transform: `translateY(${start * ROW_H}px)` }}>
+        {list.slice(start, end).map((t) => (
+          <SongRow key={t.id} track={t} context={context} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -158,6 +202,7 @@ function AlbumCard({ album }: { album: Album }): JSX.Element {
     <button
       class="lib-album"
       type="button"
+      aria-label={`${album.album} by ${album.artist}`}
       onClick={() => {
         albumKey.value = album.key;
       }}
@@ -201,20 +246,29 @@ function AlbumDetail({ album }: { album: Album }): JSX.Element {
             {album.artist}
             {album.year ? ` · ${album.year}` : ''}
           </p>
-          <button
-            class="btn cta lib-play-all"
-            type="button"
-            onClick={() => {
-              const first = album.tracks[0];
-              if (first)
-                void playTrack(
-                  first,
-                  album.tracks.map((t) => t.id),
-                );
-            }}
-          >
-            ▶ Play
-          </button>
+          <div class="lib-detail__actions">
+            <button
+              class="btn cta lib-play-all"
+              type="button"
+              onClick={() => {
+                const first = album.tracks[0];
+                if (first)
+                  void playTrack(
+                    first,
+                    album.tracks.map((t) => t.id),
+                  );
+              }}
+            >
+              ▶ Play
+            </button>
+            <button
+              class="btn lib-shuffle-all"
+              type="button"
+              onClick={() => void shufflePlay(album.tracks.map((t) => t.id))}
+            >
+              ⇄ Shuffle
+            </button>
+          </div>
         </div>
       </div>
       <SongList list={album.tracks} />

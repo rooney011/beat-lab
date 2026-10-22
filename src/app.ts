@@ -350,9 +350,10 @@ export class App {
   }
 
   /** Transport entry for the library queue controller: play a resolved file on the deck engine. */
-  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0, meta?: PlayMeta): void {
+  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0, meta?: PlayMeta, focus = false): void {
     this.ensureAudio();
-    this.set({ screen: 'live' });
+    // Only an explicit pick pulls you to Now Playing; an auto-advance must not yank you off the library.
+    if (focus) this.set({ screen: 'live' });
     void this.loadFile(file, deck, crossfadeSec, startSec, meta);
   }
 
@@ -756,44 +757,50 @@ export class App {
     const delay = this.syncDelay();
     const a = this.sync.apply(live, t, delay);
     const st = this.state;
-    this.stage.events(a.f, t, st, this.director.now);
+    // The library screen fully covers the stage, so painting it there is wasted work — skip all
+    // drawing while it's hidden (the biggest battery saving in 1.4). Audio analysis, mood and the
+    // mini-player meter above keep running; only the canvas goes quiet.
+    const draw = st.screen !== 'library';
+    if (draw) this.stage.events(a.f, t, st, this.director.now);
     const songT = this.songTime();
-    this.stage.render({
-      a,
-      t,
-      dt,
-      s: st,
-      dim: this.director.now,
-      profile: this.mood.profile,
-      motion: moodLook(st.mood).motion,
-      word: this.giantWord(st),
-      wipe: (ms) => this.director.advanceWipe(t, ms),
-      envelope: this.features.sinT[0],
-      drawLyrics: (c, D, k, kick) => {
-        if (songT < 0 || !this.lyrics.active) return;
-        this.lyrics.draw({
-          c,
-          songTime: songT - delay / 1000,
-          t,
-          W: c.canvas.width,
-          H: c.canvas.height,
-          k,
-          D,
-          layout: st.layout,
-          calm: st.reduce,
-          style: moodLook(st.mood).lyric,
-          bpm: st.bpm,
-          kick,
-        });
-      },
-    });
-    this.strip.draw(
-      a.f.bands,
-      DIMS[this.director.now],
-      st.layout !== 'desktop',
-      !st.playing,
-      t - this.stage.lastBeatSeen < 120,
-    );
+    if (draw)
+      this.stage.render({
+        a,
+        t,
+        dt,
+        s: st,
+        dim: this.director.now,
+        profile: this.mood.profile,
+        motion: moodLook(st.mood).motion,
+        word: this.giantWord(st),
+        wipe: (ms) => this.director.advanceWipe(t, ms),
+        envelope: this.features.sinT[0],
+        drawLyrics: (c, D, k, kick) => {
+          if (songT < 0 || !this.lyrics.active) return;
+          this.lyrics.draw({
+            c,
+            songTime: songT - delay / 1000,
+            t,
+            W: c.canvas.width,
+            H: c.canvas.height,
+            k,
+            D,
+            layout: st.layout,
+            calm: st.reduce,
+            style: moodLook(st.mood).lyric,
+            bpm: st.bpm,
+            kick,
+          });
+        },
+      });
+    if (draw)
+      this.strip.draw(
+        a.f.bands,
+        DIMS[this.director.now],
+        st.layout !== 'desktop',
+        !st.playing,
+        t - this.stage.lastBeatSeen < 120,
+      );
     this.perf(dt, t);
     this.tick(t, lf);
     this.onFrame?.(a);

@@ -302,8 +302,8 @@ route change; reduced motion turns off the hover misprint and grid animations.
 **Done when:**
 
 - [ ] Every screen works on a 360 px wide phone and a 1440 px desktop.
-- [ ] Scrolling 10,000 songs holds 60 fps on desktop.
-- [ ] With Now Playing closed, the stage draws nothing.
+- [x] Scrolling 10,000 songs holds 60 fps on desktop.
+- [x] With Now Playing closed, the stage draws nothing.
 - [ ] The existing e2e flows (mic, tab, file) still pass, now reached from a "Live input" entry.
 
 ---

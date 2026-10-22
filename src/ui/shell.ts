@@ -161,12 +161,18 @@ export class Shell {
     on('coverTab', () => app.pickSource('tab'));
     on('coverCalm', () => app.toggleCalm());
     on('btnHud', () => app.set({ hud: !app.state.hud }));
-    on('btnSettings', () => app.set({ drawer: !app.state.drawer }));
     on('btnClean', () => app.set({ clean: true }));
     on('btnUnclean', () => app.set({ clean: false }));
     on('btnFull', () => app.fullscreen());
     on('coverLibrary', () => app.openLibrary());
     on('btnLibrary', () => app.openLibrary());
+    on('navNow', () => app.set({ screen: app.state.source ? 'live' : 'cover', drawer: false, clean: false }));
+    on('navLibrary', () => app.openLibrary());
+    on('navLive', () => app.set({ screen: 'cover', drawer: false }));
+    on('navSettings', () => app.set({ drawer: !app.state.drawer }));
+    on('miniOpen', () => app.set({ screen: app.state.source ? 'live' : 'cover' }));
+    on('miniPlay', () => app.togglePlay());
+    on('miniNext', () => this.lib?.nextTrack());
     on('btnPlay', () => app.togglePlay());
     on('btnPrev', () => this.lib?.previousTrack());
     on('btnNext', () => this.lib?.nextTrack());
@@ -207,6 +213,13 @@ export class Shell {
     byId('scrim').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) app.set({ card: null });
     });
+
+    // Collapse the nav rail to icons while in fullscreen so the stage gets the width back.
+    const onFull = (): void => {
+      this.root.classList.toggle('is-full', !!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFull);
+    onFull();
 
     for (const ev of ['pointermove', 'pointerdown', 'wheel'] as const)
       window.addEventListener(ev, () => app.poke(), { passive: true });
@@ -251,6 +264,7 @@ export class Shell {
     root.classList.toggle('is-library', library);
     byId('library-root').hidden = !library;
     if (library && !this.libMounted) void this.ensureLibrary();
+    this.renderNav(s, prev);
 
     // Cover
     const coverEl = byId('cover');
@@ -454,7 +468,8 @@ export class Shell {
       this.lib = lib;
       lib.setBridge({ close: () => app.set({ screen: app.state.source ? 'live' : 'cover' }) });
       lib.setTransport({
-        play: (file, deck, crossfadeSec, startSec, meta) => app.playTrackFile(file, deck, crossfadeSec, startSec, meta),
+        play: (file, deck, crossfadeSec, startSec, meta, focus) =>
+          app.playTrackFile(file, deck, crossfadeSec, startSec, meta, focus),
         seek: (s) => app.seek(s),
         position: () => app.playbackTime(),
         duration: () => app.playbackDuration(),
@@ -469,6 +484,38 @@ export class Shell {
       this.libMounted = false;
       console.error(err);
     }
+  }
+
+  // ---------------------------------------------------------------- navigation + mini player (milestone 1.4)
+
+  private miniCtx: CanvasRenderingContext2D | null = null;
+
+  /** Reflect the current screen onto the nav, and show the mini player on every screen but Now Playing. */
+  private renderNav(s: AppState, prev: AppState | null): void {
+    attr(byId('navNow'), 'aria-pressed', String(s.screen === 'live'));
+    attr(byId('navLibrary'), 'aria-pressed', String(s.screen === 'library'));
+    attr(byId('navLive'), 'aria-pressed', String(s.screen === 'cover'));
+
+    const mini = byId('mini');
+    const show = !!s.source && s.screen === 'library';
+    mini.hidden = !show;
+    if (!show) return;
+    text(byId('miniTitle'), s.title || 'No track');
+    text(byId('miniArtist'), s.meta.artist || '');
+    attr(byId('miniPlay'), 'aria-label', s.playing ? 'Pause' : 'Play');
+    attr(byId('miniPlayIcon'), 'd', s.playing ? ICONS.pause : ICONS.play);
+    byId('miniFill').style.width = Math.round((s.scrub / Math.max(1, s.scrubMax)) * 100) + '%';
+    const coverChanged =
+      !prev || prev.meta !== s.meta || prev.title !== s.title || prev.hasArt !== s.hasArt || prev.dim !== s.dim;
+    if (coverChanged || prev?.screen !== s.screen) this.blitMiniCover();
+  }
+
+  /** Mirror the now-playing cover canvas into the mini player's small canvas (cheap, on change only). */
+  private blitMiniCover(): void {
+    const dst = byId<HTMLCanvasElement>('miniArt');
+    const src = byId<HTMLCanvasElement>('art');
+    this.miniCtx ??= dst.getContext('2d');
+    if (this.miniCtx && src.width > 0) this.miniCtx.drawImage(src, 0, 0, dst.width, dst.height);
   }
 
   // ---------------------------------------------------------------- media session (lock screen / media keys)

@@ -1,6 +1,7 @@
 import type { JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { formatTime } from '../../util/math';
+import type { EnergyArc } from '../../analysis/order';
 import { getCover } from '../db';
 import type { Track } from '../types';
 import {
@@ -17,6 +18,7 @@ import {
   queue,
   reconnectFolder,
   removeTrack,
+  reorderByArc,
   results,
   scan,
   shufflePlay,
@@ -421,12 +423,33 @@ function Songs(): JSX.Element {
   );
 }
 
+const ARCS: [EnergyArc, string][] = [
+  ['warmup', 'Warm up → peak'],
+  ['steady', 'Steady'],
+  ['build', 'Build'],
+];
+
 function QueueView(): JSX.Element {
   const q = queue.value;
   const byId = new Map(tracks.value.map((t) => [t.id, t]));
   const list = q.order.map((id) => byId.get(id)).filter((t): t is Track => !!t);
   if (!list.length) return <p class="lib-empty">The queue is empty. Play something to build it.</p>;
-  return <SongList list={list} />;
+  const upcoming = q.order.length - q.index - 1;
+  return (
+    <>
+      {upcoming >= 2 && (
+        <div class="lib-arc" role="group" aria-label="Order the queue by mood and energy">
+          <span class="lib-arc__label">Order by mood &amp; energy</span>
+          {ARCS.map(([arc, label]) => (
+            <button key={arc} class="btn lib-arc__btn" type="button" onClick={() => void reorderByArc(arc)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      <SongList list={list} />
+    </>
+  );
 }
 
 export function LibraryApp(): JSX.Element {

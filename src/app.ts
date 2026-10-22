@@ -1,5 +1,5 @@
 import { PlaybackEngine, type DeckTrack } from './audio/decks';
-import type { PlayMeta } from './library/store';
+import type { PlayMeta, TransitionLink } from './library/store';
 import { AudioEngine } from './audio/engine';
 import { LiveSource, LiveSourceError, type LiveKind } from './audio/sources';
 import { AiMood, type AiMoodResult } from './ai/aimood';
@@ -373,11 +373,19 @@ export class App {
   }
 
   /** Transport entry for the library queue controller: play a resolved file on the deck engine. */
-  playTrackFile(file: File, deck: DeckTrack, crossfadeSec = 0, startSec = 0, meta?: PlayMeta, focus = false): void {
+  playTrackFile(
+    file: File,
+    deck: DeckTrack,
+    crossfadeSec = 0,
+    startSec = 0,
+    meta?: PlayMeta,
+    focus = false,
+    transition?: TransitionLink,
+  ): void {
     this.ensureAudio();
     // Only an explicit pick pulls you to Now Playing; an auto-advance must not yank you off the library.
     if (focus) this.set({ screen: 'live' });
-    void this.loadFile(file, deck, crossfadeSec, startSec, meta);
+    void this.loadFile(file, deck, crossfadeSec, startSec, meta, transition);
   }
 
   /** The deck engine's live position/length, for the queue controller's resume state and crossfade. */
@@ -505,6 +513,7 @@ export class App {
     crossfadeSec = 0,
     startSec = 0,
     lib?: PlayMeta,
+    transition?: TransitionLink,
   ): Promise<void> {
     const ctx = this.ensureAudio();
     if (!ctx || !this.audio.input || !this.playback) return;
@@ -522,14 +531,16 @@ export class App {
     const key = `file:${file.name}:${file.size}`;
     // A direct file open (no library id) takes over from any active queue.
     if (deck.id === null) this.queueHooks?.external();
-    // Crossfade only when a track is already playing on the deck; otherwise hard-start.
-    const fading = crossfadeSec > 0 && !engine.paused && this.state.source === 'file';
+    // Blend only when a track is already playing on the deck; otherwise hard-start. A beat-matched
+    // transition takes precedence over a plain crossfade when the queue planned one.
+    const fading = (transition || crossfadeSec > 0) && !engine.paused && this.state.source === 'file';
     if (fading) {
       this.lyricsAbort?.abort();
       this.lyricsAbort = null;
       this.ai.stop();
       this.aiRead = null;
-      engine.crossfade(file, deck, crossfadeSec).catch(() => {});
+      if (transition) engine.beatMatch(file, deck, transition.plan, transition.gridA, transition.gridB).catch(() => {});
+      else engine.crossfade(file, deck, crossfadeSec).catch(() => {});
     } else {
       this.stopSources();
       this.audio.setMonitor(true);

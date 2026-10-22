@@ -23,6 +23,7 @@ import {
   storeImport,
 } from './files';
 import { AnalysisRunner } from './analysis';
+import { planTransition, type TransitionPlan } from '../analysis/mix';
 import { measuredGainDb, replayGainDb } from './loudness';
 import { parseMeta } from './meta';
 import {
@@ -287,9 +288,19 @@ export interface PlayMeta {
   year?: number;
 }
 
+/** A planned beat-matched hand-off: the plan plus both tracks' beat grids for runtime phase-locking. */
+export interface TransitionLink {
+  plan: TransitionPlan;
+  gridA: Float32Array;
+  gridB: Float32Array;
+}
+
 /** What the host app provides so the library queue can drive the deck engine. */
 export interface Transport {
-  /** `focus` brings the Now Playing stage forward — set only for an explicit pick, not auto-advance. */
+  /**
+   * `focus` brings the Now Playing stage forward — set only for an explicit pick, not auto-advance.
+   * When `transition` is given, the hand-off is beat-matched instead of a plain crossfade.
+   */
   play(
     file: File,
     deck: { id: string; gainDb: number },
@@ -297,6 +308,7 @@ export interface Transport {
     startSec: number,
     meta?: PlayMeta,
     focus?: boolean,
+    transition?: TransitionLink,
   ): void;
   seek(seconds: number): void;
   position(): number;
@@ -307,6 +319,13 @@ export interface Transport {
 export const queue = signal<QueueState>(emptyQueue());
 export const nowPlayingId = signal<string | null>(null);
 export const crossfadeSec = signal(4);
+/** Auto-mix: beat-match hand-offs between analysed, tempo-compatible tracks (Phase 4.1). */
+export const autoMix = signal(true);
+export function setAutoMix(on: boolean): void {
+  autoMix.value = on;
+  void computePending();
+  persistSoon();
+}
 /** The playing track's stored analysis (null until it's analysed). Drives the 2.3 script + 2.4 seek bar. */
 export const nowPlayingAnalysis = signal<TrackAnalysis | null>(null);
 
@@ -359,6 +378,7 @@ function savePlayState(): void {
     repeat: q.repeat,
     position: transport?.position() ?? resumePosition,
     crossfadeSec: crossfadeSec.value,
+    autoMix: autoMix.value,
   };
   void putPlayState(state);
 }
@@ -375,7 +395,14 @@ function startWatcher(): void {
     const id = nowPlayingId.value;
     const cross = crossfadeSec.value;
     const dur = t.duration();
-    if (id && cross > 0 && dur > 0 && crossfadedFrom !== id && dur - t.position() <= cross && hasNext()) {
+    if (!id || crossfadedFrom === id || !hasNext()) return;
+    if (pending && pending.fromId === id && t.position() >= pending.plan.outStart) {
+      // Beat-matched hand-off: start the planned transition at its mix-out point.
+      crossfadedFrom = id;
+      const link = pending;
+      pending = null;
+      void advance(0, link);
+    } else if (cross > 0 && dur > 0 && dur - t.position() <= cross) {
       crossfadedFrom = id;
       void advance(cross);
     }
@@ -390,7 +417,21 @@ function hasNext(): boolean {
   return queueCurrentId(queueNext(queue.value)) !== null;
 }
 
-async function playCurrent(cross: number, focus = false): Promise<void> {
+// The beat-matched hand-off planned for the current track's end, or null (→ plain crossfade).
+let pending: (TransitionLink & { fromId: string }) | null = null;
+async function computePending(): Promise<void> {
+  pending = null;
+  const fromId = nowPlayingId.value;
+  const nextId = queueCurrentId(queueNext(queue.value));
+  if (!autoMix.value || !fromId || !nextId) return;
+  const [a, b] = await Promise.all([getAnalysis(fromId), getAnalysis(nextId)]);
+  // Bail if the current track changed while we were reading, or either track isn't analysed.
+  if (!a || !b || nowPlayingId.value !== fromId) return;
+  const plan = planTransition(a, b);
+  if (plan) pending = { plan, gridA: a.beats, gridB: b.beats, fromId };
+}
+
+async function playCurrent(cross: number, focus = false, transition?: TransitionLink): Promise<void> {
   const id = queueCurrentId(queue.value);
   nowPlayingId.value = id;
   if (!id || !transport) {
@@ -411,15 +452,17 @@ async function playCurrent(cross: number, focus = false): Promise<void> {
   const startSec = id === resumeId ? resumePosition : 0;
   resumeId = null;
   resumePosition = 0;
-  transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec, metaOf(track), focus);
+  transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec, metaOf(track), focus, transition);
   startWatcher();
   persistSoon();
   // The background runner measures the playing track first (its priority), applying the trim when
   // the measurement lands; no need to kick it off here beyond keeping its context fresh.
   syncAnalysis();
+  // Plan the next beat-matched hand-off for this new current track.
+  void computePending();
 }
 
-async function advance(cross: number): Promise<void> {
+async function advance(cross: number, transition?: TransitionLink): Promise<void> {
   queue.value = queueNext(queue.value);
   if (queueCurrentId(queue.value) === null) {
     stopWatcher();
@@ -427,7 +470,7 @@ async function advance(cross: number): Promise<void> {
     persistSoon();
     return;
   }
-  await playCurrent(cross);
+  await playCurrent(cross, false, transition);
 }
 
 /** Play a track now, seeding the queue from the list it was shown in. */
@@ -509,6 +552,7 @@ export function subscribePlayback(cb: () => void): () => void {
     void queue.value;
     void crossfadeSec.value;
     void nowPlayingId.value;
+    void autoMix.value;
     cb();
   });
 }
@@ -517,6 +561,7 @@ async function restorePlayState(): Promise<void> {
   const s = await getPlayState();
   if (!s || !s.order.length) return;
   crossfadeSec.value = s.crossfadeSec || 4;
+  autoMix.value = s.autoMix ?? true;
   queue.value = { order: s.order, index: s.index, history: s.history, shuffle: s.shuffle, repeat: s.repeat };
   const id = queueCurrentId(queue.value);
   nowPlayingId.value = id;
@@ -570,6 +615,15 @@ function syncAnalysis(): void {
 
 // Keep the runner's view of the library and queue current; it (re)starts its loop on each change.
 effect(syncAnalysis);
+
+// Re-plan the beat-matched hand-off when the queue, current track or the auto-mix setting changes
+// (read synchronously so the effect tracks them; computePending itself is async).
+effect(() => {
+  void queue.value;
+  void nowPlayingId.value;
+  void autoMix.value;
+  void computePending();
+});
 
 // Load the playing track's stored analysis as it changes (a fresh analysis also updates it above).
 let analysisForId: string | null = null;

@@ -20,7 +20,8 @@ import {
   storageEstimate,
   storeImport,
 } from './files';
-import { measuredGainDb, measureLoudness, replayGainDb } from './loudness';
+import { AnalysisRunner } from './analysis';
+import { measuredGainDb, replayGainDb } from './loudness';
 import { parseMeta } from './meta';
 import {
   currentId as queueCurrentId,
@@ -409,7 +410,9 @@ async function playCurrent(cross: number, focus = false): Promise<void> {
   transport.play(file, { id, gainDb: track ? gainDbFor(track) : 0 }, cross, startSec, metaOf(track), focus);
   startWatcher();
   persistSoon();
-  if (track) void measureAndApply(track);
+  // The background runner measures the playing track first (its priority), applying the trim when
+  // the measurement lands; no need to kick it off here beyond keeping its context fresh.
+  syncAnalysis();
 }
 
 async function advance(cross: number): Promise<void> {
@@ -519,27 +522,47 @@ async function restorePlayState(): Promise<void> {
   }
 }
 
-// Background loudness measurement for the playing track (plays at 0 dB / ReplayGain until ready).
-let decodeCtx: OfflineAudioContext | null = null;
-async function measureAndApply(track: Track): Promise<void> {
-  if (track.loudness || track.replayGain?.track !== undefined) return;
-  try {
-    const file = await fileForTrack(track);
-    if (!file) return;
-    decodeCtx ??= new OfflineAudioContext(1, 1, 44100);
-    const buf = await decodeCtx.decodeAudioData(await file.arrayBuffer());
-    const channels: Float32Array[] = [];
-    for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
-    const result = measureLoudness(channels, buf.sampleRate);
-    if (!Number.isFinite(result.lufs)) return;
-    const updated: Track = { ...track, loudness: result };
-    void putTrack(updated);
-    tracks.value = tracks.value.map((t) => (t.id === track.id ? updated : t));
-    if (nowPlayingId.value === track.id) transport?.setGain(measuredGainDb(result));
-  } catch {
-    /* leave the track at 0 dB */
-  }
+// ---------------------------------------------------------------- background analysis (Phase 2)
+
+/**
+ * Set true by the host while the render thread is under load (on phones, while Now Playing draws),
+ * so background analysis holds off and never fights playback for the main thread. See src/app.ts.
+ */
+let analysisBusy = false;
+export function setAnalysisBusy(on: boolean): void {
+  if (analysisBusy === on) return;
+  analysisBusy = on;
+  if (!on) syncAnalysis(); // resume promptly when the render thread frees up
 }
+
+// One runner for the whole library: it measures the playing track first, then the upcoming queue,
+// then everything else, over idle time — replacing the old playing-track-only loudness pass. The
+// trim is applied live when the playing track's measurement arrives. 2.2 extends it to the full
+// TrackAnalysis from the same decode.
+const analysisRunner = new AnalysisRunner({
+  getFile: (track) => fileForTrack(track).then((f) => f ?? null),
+  isBusy: () => analysisBusy,
+  onLoudness: (track, loudness) => {
+    const cur = tracks.value.find((t) => t.id === track.id) ?? track;
+    if (cur.loudness) return;
+    const updated: Track = { ...cur, loudness };
+    void putTrack(updated);
+    tracks.value = tracks.value.map((t) => (t.id === cur.id ? updated : t));
+    if (nowPlayingId.value === cur.id) transport?.setGain(measuredGainDb(loudness));
+  },
+});
+
+function syncAnalysis(): void {
+  const q = queue.value;
+  analysisRunner.sync({
+    tracks: tracks.value,
+    playingId: nowPlayingId.value,
+    queued: q.order.slice(q.index + 1),
+  });
+}
+
+// Keep the runner's view of the library and queue current; it (re)starts its loop on each change.
+effect(syncAnalysis);
 
 // Used only by the rescan path and tests that want the current on-disk fingerprint.
 export function statsOf(list: Track[]): ScanStat[] {

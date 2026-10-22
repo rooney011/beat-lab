@@ -1,10 +1,11 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Cover, LinkedFolder, PersistedPlayState, Track } from './types';
+import type { Cover, LinkedFolder, PersistedPlayState, Track, TrackAnalysis } from './types';
 
 /**
  * The library's IndexedDB. Tracks, deduplicated covers and linked-folder handles each get a store;
- * `blobs` holds imported audio when OPFS is unavailable (see files.ts). Grouping and sorting are
- * done in memory — a few thousand tracks filter in milliseconds — so no indexes are needed yet.
+ * `blobs` holds imported audio when OPFS is unavailable (see files.ts). `analysis` holds the Phase 2
+ * per-track beat/section/drop/key result, keyed by track id. Grouping and sorting are done in memory
+ * — a few thousand tracks filter in milliseconds — so no indexes are needed yet.
  */
 interface LibraryDB extends DBSchema {
   tracks: { key: string; value: Track };
@@ -12,13 +13,14 @@ interface LibraryDB extends DBSchema {
   folders: { key: string; value: LinkedFolder };
   blobs: { key: string; value: Blob };
   playstate: { key: string; value: PersistedPlayState };
+  analysis: { key: string; value: TrackAnalysis };
 }
 
 let dbp: Promise<IDBPDatabase<LibraryDB>> | null = null;
 
 function db(): Promise<IDBPDatabase<LibraryDB>> {
   if (!dbp)
-    dbp = openDB<LibraryDB>('beat-lab-library', 2, {
+    dbp = openDB<LibraryDB>('beat-lab-library', 3, {
       upgrade(d, oldVersion) {
         if (oldVersion < 1) {
           d.createObjectStore('tracks', { keyPath: 'id' });
@@ -27,6 +29,7 @@ function db(): Promise<IDBPDatabase<LibraryDB>> {
           d.createObjectStore('blobs');
         }
         if (oldVersion < 2) d.createObjectStore('playstate');
+        if (oldVersion < 3) d.createObjectStore('analysis', { keyPath: 'trackId' });
       },
     });
   return dbp;
@@ -59,8 +62,13 @@ export async function putTrack(t: Track): Promise<void> {
 
 export async function deleteTrack(id: string): Promise<void> {
   const d = await db();
-  const tx = d.transaction(['tracks', 'blobs'], 'readwrite');
-  await Promise.all([tx.objectStore('tracks').delete(id), tx.objectStore('blobs').delete(id), tx.done]);
+  const tx = d.transaction(['tracks', 'blobs', 'analysis'], 'readwrite');
+  await Promise.all([
+    tx.objectStore('tracks').delete(id),
+    tx.objectStore('blobs').delete(id),
+    tx.objectStore('analysis').delete(id),
+    tx.done,
+  ]);
 }
 
 export async function getCover(id: string): Promise<Cover | undefined> {
@@ -92,4 +100,23 @@ export async function putBlob(key: string, blob: Blob): Promise<void> {
 
 export async function getBlob(key: string): Promise<Blob | undefined> {
   return (await db()).get('blobs', key);
+}
+
+// ---------------------------------------------------------------- analysis (Phase 2)
+
+export async function getAnalysis(trackId: string): Promise<TrackAnalysis | undefined> {
+  return (await db()).get('analysis', trackId);
+}
+
+export async function putAnalysis(a: TrackAnalysis): Promise<void> {
+  await (await db()).put('analysis', a);
+}
+
+export async function deleteAnalysis(trackId: string): Promise<void> {
+  await (await db()).delete('analysis', trackId);
+}
+
+/** The track ids that already have a stored analysis record (keys only — cheap, no payloads). */
+export async function getAnalyzedIds(): Promise<Set<string>> {
+  return new Set(await (await db()).getAllKeys('analysis'));
 }

@@ -83,6 +83,21 @@ export class SceneDirector {
     this.switchTo(this.target(), t);
   }
 
+  /**
+   * Adopt another director's mood/set/dim and show its current scene with no crossfade, bound to the
+   * given look object (the clip stage's own tracker look). Lets a second stage start already matched.
+   */
+  copyFrom(o: SceneDirector, t: number, look: SongLook): void {
+    this.look = look;
+    this.set = o.set.slice();
+    this.mood = o.mood;
+    this.dim = o.dim;
+    this.pinned = o.pinned;
+    this.prev = null;
+    this.fadeT = t;
+    this.cur = this.make(o.cur.def.id);
+  }
+
   /** Draw with the background's overall alpha; handles the crossfade. */
   draw(input: Omit<SceneInput, 'look'>, t: number): void {
     let p = 1;

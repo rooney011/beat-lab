@@ -7,6 +7,8 @@ import { FeatureExtractor } from './analysis/features';
 import { DimensionDirector } from './analysis/ladder';
 import { MoodReader } from './analysis/mood';
 import { DROP_DIM, MIN_CONFIDENCE, ScriptDirector } from './analysis/script';
+import { type ClipState, ClipStudio } from './clip/studio';
+import { type ClipAspect, clipSize } from './clip/format';
 import type { TrackAnalysis } from './library/types';
 import { SyncDelay, autoDelay, MAX_DELAY_MS } from './analysis/sync';
 import { DIMS } from './config/dims';
@@ -18,7 +20,7 @@ import { CoverArt } from './meta/cover';
 import { guessFromFilename, readFileTags, type Tags } from './meta/tags';
 import { loadCanvasFonts } from './render/fonts';
 import { sceneDef } from './render/scenes';
-import { Stage } from './render/stage';
+import { Stage, type StageFrame } from './render/stage';
 import { BandStrip } from './render/strip';
 import { DEFAULT_FX, loadSettings, sanitize, saveSettings, settingsChanged } from './settings';
 import { Store } from './store';
@@ -95,6 +97,8 @@ export function initialState(): AppState {
     scale: 1,
     suspended: false,
     dragging: false,
+    clip: { phase: 'idle', progress: 0, url: null, webm: false },
+    visualsOnly: false,
     ...sanitize(loadSettings()),
   };
 }
@@ -130,6 +134,8 @@ export class App {
   private analysis: TrackAnalysis | null = null;
   /** Count-in lettering the script wants on the giant word this frame (e.g. "3", "WAIT FOR IT"). */
   private scriptWord: string | null = null;
+  /** The clip recorder while a clip is being made (Phase 3); null when idle. */
+  private clipStudio: ClipStudio | null = null;
   /** The on-device mood model (lazy worker; silent fallback to the quick read). */
   readonly ai: AiMood;
   /** The latest AI read, for the tuning readout. */
@@ -228,6 +234,8 @@ export class App {
     cancelAnimationFrame(this.raf);
     this.resizeObs?.disconnect();
     this.stopSources();
+    this.clipStudio?.dispose();
+    this.clipStudio = null;
     this.playback?.dispose();
     this.playback = null;
     this.ai.dispose();
@@ -333,6 +341,8 @@ export class App {
     this.analysis = null;
     this.scriptWord = null;
     this.stage.tension = 0;
+    // A clip belongs to the track it started on; a new song ends it.
+    if (this.state.clip.phase !== 'idle') this.discardClip();
     // Back to the listening globe with fresh, seeded layouts until the mood is read.
     this.stage.director.setSong(this.stage.tracker.reset(key), t);
     this.set({ mood: null, bpm: 0, aiActive: false });
@@ -385,6 +395,93 @@ export class App {
   /** The library controller pushes the playing track's analysis (or null) so the script can run. */
   setAnalysis(a: TrackAnalysis | null): void {
     this.analysis = a;
+  }
+
+  // ---------------------------------------------------------------- clip recording (Phase 3)
+
+  /** Start recording a shareable clip of Now Playing (3-2-1 countdown, then `durationSec`). */
+  startClip(opts: { aspect?: ClipAspect; durationSec?: number } = {}): void {
+    const phase = this.state.clip.phase;
+    if (phase !== 'idle' && phase !== 'error') return; // one at a time
+    const ctx = this.audio.ctx;
+    if (this.state.source !== 'file' || !ctx || !this.audio.input) {
+      this.toast('Play a track first, then record a clip', 'warn');
+      return;
+    }
+    this.poke();
+    try {
+      this.clipStudio = new ClipStudio(
+        ctx,
+        this.audio.input,
+        this.stage,
+        {
+          size: clipSize(opts.aspect ?? '9:16', this.state.layout),
+          visualsOnly: this.state.visualsOnly,
+          durationSec: opts.durationSec ?? 15,
+          title: this.state.meta.title || this.state.title || 'BEAT LAB',
+          artist: this.state.meta.artist || '',
+        },
+        (s) => this.onClipState(s),
+        (r) => {
+          if (r) this.set({ clip: { phase: 'preview', progress: 1, url: r.url, webm: r.webm } });
+          else {
+            this.discardClip();
+            this.toast("Couldn't record a clip here", 'warn');
+          }
+        },
+      );
+      this.set({ clip: { phase: 'countdown', progress: 1, url: null, webm: false } });
+    } catch {
+      this.clipStudio = null;
+      this.toast("Couldn't record a clip here", 'warn');
+    }
+  }
+
+  /** Seek to 5 s before the track's main drop, then record from there (uses Phase 2 analysis). */
+  clipTheDrop(): void {
+    const drop = this.analysis?.drops[0];
+    if (this.state.source !== 'file' || !drop) {
+      this.toast('No drop detected to clip', 'warn');
+      return;
+    }
+    this.seek(Math.max(0, drop.time - 5));
+    this.startClip();
+  }
+
+  /** Finish the current recording early (the ring hasn't filled yet). */
+  stopClip(): void {
+    this.clipStudio?.stop();
+  }
+
+  clipShare(): void {
+    void this.clipStudio?.share();
+  }
+  clipSave(): void {
+    this.clipStudio?.save();
+  }
+
+  /** Throw the clip away and return to Now Playing. */
+  discardClip(): void {
+    this.clipStudio?.dispose();
+    this.clipStudio = null;
+    this.set({ clip: { phase: 'idle', progress: 0, url: null, webm: false } });
+  }
+
+  /** Per-frame state update from the studio, throttled so the ring is smooth without churning state. */
+  private onClipState(s: ClipState): void {
+    const cur = this.state.clip;
+    if (cur.phase === s.phase && Math.abs(cur.progress - s.progress) < 0.02) return;
+    this.set({ clip: { phase: s.phase, progress: s.progress, url: cur.url, webm: s.webm } });
+  }
+
+  /** Drive the offscreen clip stage from the same frame the main stage used. */
+  private drawClip(frame: StageFrame, t: number, st: AppState): void {
+    const studio = this.clipStudio;
+    if (!studio || st.clip.phase === 'idle' || st.clip.phase === 'preview' || st.clip.phase === 'error') return;
+    // Portrait centring + the strict flash budget (clips are shared where anyone can watch), and a
+    // no-op wipe so the clip never double-advances the live director's dimension wipe.
+    const clipFrame: StageFrame = { ...frame, s: { ...st, layout: 'mobile', strict: true }, wipe: () => null };
+    studio.renderFrame(clipFrame, t);
   }
 
   /** Files from the picker or a drop: one audio file, optionally with its .lrc. */
@@ -786,39 +883,39 @@ export class App {
     // drawing while it's hidden (the biggest battery saving in 1.4). Audio analysis, mood and the
     // mini-player meter above keep running; only the canvas goes quiet.
     const draw = st.screen !== 'library';
-    if (draw) this.stage.events(a.f, t, st, this.director.now);
     const songT = this.songTime();
-    if (draw)
-      this.stage.render({
-        a,
-        t,
-        dt,
-        s: st,
-        dim: this.director.now,
-        profile: this.mood.profile,
-        motion: moodLook(st.mood).motion,
-        word: this.giantWord(st),
-        wipe: (ms) => this.director.advanceWipe(t, ms),
-        envelope: this.features.sinT[0],
-        drawLyrics: (c, D, k, kick) => {
-          if (songT < 0 || !this.lyrics.active) return;
-          this.lyrics.draw({
-            c,
-            songTime: songT - delay / 1000,
-            t,
-            W: c.canvas.width,
-            H: c.canvas.height,
-            k,
-            D,
-            layout: st.layout,
-            calm: st.reduce,
-            style: moodLook(st.mood).lyric,
-            bpm: st.bpm,
-            kick,
-          });
-        },
-      });
-    if (draw)
+    const frameArg: StageFrame = {
+      a,
+      t,
+      dt,
+      s: st,
+      dim: this.director.now,
+      profile: this.mood.profile,
+      motion: moodLook(st.mood).motion,
+      word: this.giantWord(st),
+      wipe: (ms) => this.director.advanceWipe(t, ms),
+      envelope: this.features.sinT[0],
+      drawLyrics: (c, D, k, kick) => {
+        if (songT < 0 || !this.lyrics.active) return;
+        this.lyrics.draw({
+          c,
+          songTime: songT - delay / 1000,
+          t,
+          W: c.canvas.width,
+          H: c.canvas.height,
+          k,
+          D,
+          layout: st.layout,
+          calm: st.reduce,
+          style: moodLook(st.mood).lyric,
+          bpm: st.bpm,
+          kick,
+        });
+      },
+    };
+    if (draw) {
+      this.stage.events(a.f, t, st, this.director.now);
+      this.stage.render(frameArg);
       this.strip.draw(
         a.f.bands,
         DIMS[this.director.now],
@@ -826,6 +923,8 @@ export class App {
         !st.playing,
         t - this.stage.lastBeatSeen < 120,
       );
+    }
+    this.drawClip(frameArg, t, st);
     this.perf(dt, t);
     this.tick(t, lf);
     this.onFrame?.(a);

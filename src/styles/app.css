@@ -705,6 +705,78 @@ input:focus-visible,
 .slider.has-viz .slider__track {
   display: none;
 }
+
+/* ---------- clip recorder (Phase 3) ---------- */
+.np__clip {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.clip {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(11, 10, 16, 0.72);
+}
+.clip__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  max-width: min(90vw, 440px);
+  text-align: center;
+}
+.clip__ring {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  display: grid;
+  place-items: center;
+}
+.clip__ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.clip__ring-bg {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 6;
+}
+.clip__ring-arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 120ms linear;
+}
+.clip__ring .disp {
+  font-size: 44px;
+  color: var(--paper);
+}
+.clip__video {
+  max-width: min(78vw, 300px);
+  max-height: 60vh;
+  border: 3px solid var(--paper);
+  background: #000;
+}
+.clip__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.clip__note,
+.clip__rights {
+  color: var(--muted);
+}
 .range {
   position: absolute;
   inset: 0;

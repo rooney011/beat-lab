@@ -49,6 +49,12 @@ export class LookTracker {
     this.look.palette = p;
   }
 
+  /** Adopt another tracker's look + glide target, so a second (clip) stage matches it immediately. */
+  copyFrom(o: LookTracker): void {
+    this.look = { ...o.look };
+    this.target = { ...o.target };
+  }
+
   /** Call once per frame. */
   update(dt: number): void {
     this.look.energy = approach(this.look.energy, this.target.energy, dt, 0.7);

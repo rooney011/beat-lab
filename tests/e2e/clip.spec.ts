@@ -3,13 +3,16 @@ import { fileURLToPath } from 'node:url';
 
 const fixture = (p: string): string => fileURLToPath(new URL(`../fixtures/${p}`, import.meta.url));
 
-type ClipApp = { startClip: (o: { durationSec: number }) => void; state: { clip: { phase: string; url: string | null } } };
+type ClipApp = {
+  startClip: (o: { durationSec: number }) => void;
+  state: { clip: { phase: string; url: string | null } };
+};
 const app = (page: Page): Promise<ClipApp['state']> =>
   page.evaluate(() => (window as unknown as { beatLab: ClipApp }).beatLab.state);
 
 /**
  * Milestone 3.1: recording produces a real, shareable clip. We record a short (2 s) clip of a fixture
- * via the debug `window.a` hook and check the output is a supported video with non-zero size.
+ * via the debug `window.beatLab` hook and check the preview <video> decodes a real frame.
  */
 test('records a short clip with a supported type and non-zero size', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'covered on desktop');

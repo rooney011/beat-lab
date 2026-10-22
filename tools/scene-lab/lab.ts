@@ -4,7 +4,10 @@
  * Dev tool only: `npm run dev`, then open /tools/scene-lab/.
  */
 import { FeatureExtractor } from '../../src/analysis/features';
+import { analyseSignal } from '../../src/analysis/extract';
+import { beatTolerance, matchEvents, scoreTempo } from '../../src/analysis/metrics';
 import { createAnalysers } from '../../src/audio/engine';
+import { downsampleTo, toMono } from '../../src/ai/resample';
 import { DIMS, LAYERS } from '../../src/config/dims';
 import { MOODS } from '../../src/config/moods';
 import type { DrawContext } from '../../src/render/context';
@@ -125,15 +128,32 @@ class SongInput {
   private el: HTMLAudioElement | null = null;
   private url = '';
   private readonly fx = new FeatureExtractor();
+  /** The loaded file, so the annotate mode can decode and analyse it for scoring. */
+  file: File | null = null;
 
   get playing(): boolean {
     return !!this.el && !this.el.paused;
+  }
+
+  /** Current playback position in seconds (0 when nothing is loaded) — the annotation timestamp. */
+  get currentTime(): number {
+    return this.el?.currentTime ?? 0;
+  }
+
+  /** Decode the loaded file to mono at 22.05 kHz (the analysis rate) for offline scoring. */
+  async decodeMono(): Promise<{ mono: Float32Array; sr: number } | null> {
+    if (!this.file || !this.ctx) return null;
+    const buf = await this.ctx.decodeAudioData(await this.file.arrayBuffer());
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) channels.push(buf.getChannelData(c));
+    return { mono: downsampleTo(toMono(channels), buf.sampleRate, 22_050), sr: 22_050 };
   }
 
   async load(file: File): Promise<void> {
     this.ctx ??= new AudioContext();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
     this.stop();
+    this.file = file;
     this.url = URL.createObjectURL(file);
     this.el = new Audio(this.url);
     const src = this.ctx.createMediaElementSource(this.el);
@@ -588,6 +608,84 @@ function bind(): void {
     render();
   });
   $('playPause').addEventListener('click', () => song.toggle());
+
+  // ---- annotate mode (validation, docs/analysis-results.md): tap D/S while a song plays, export the
+  // annotation, and Score it against the real analyser. See docs/ROADMAP.md §2 Validation.
+  const annot = { on: false, drops: [] as number[], sections: [] as number[] };
+  const annotOut = $('annotOut');
+  const inputTag = (e: Event): boolean => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA';
+  };
+  const summary = (): void => {
+    annotOut.textContent = `${annot.drops.length} drop(s), ${annot.sections.length} section(s) marked.`;
+  };
+  const mark = (kind: 'drop' | 'section'): void => {
+    if (!song.playing) {
+      annotOut.textContent = 'Play a song first, then mark drops (D) and sections (S).';
+      return;
+    }
+    (kind === 'drop' ? annot.drops : annot.sections).push(Math.round(song.currentTime * 100) / 100);
+    summary();
+  };
+  $('annotate').addEventListener('click', () => {
+    annot.on = !annot.on;
+    const b = $('annotate');
+    b.setAttribute('aria-checked', String(annot.on));
+    b.textContent = annot.on ? 'On' : 'Off';
+  });
+  $('markDrop').addEventListener('click', () => mark('drop'));
+  $('markSection').addEventListener('click', () => mark('section'));
+  $('annotClear').addEventListener('click', () => {
+    annot.drops = [];
+    annot.sections = [];
+    summary();
+  });
+  $('annotExport').addEventListener('click', () => {
+    const trueBpm = Number(($('trueBpm') as HTMLInputElement).value) || undefined;
+    const data = { name: song.file?.name ?? 'track', drops: annot.drops, sections: annot.sections, trueBpm };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    a.download = `${(song.file?.name ?? 'track').replace(/\.[^.]+$/, '')}.annotation.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+  $('annotScore').addEventListener('click', async () => {
+    const decoded = await song.decodeMono().catch(() => null);
+    if (!decoded) {
+      annotOut.textContent = 'Load a song first (Play a song), then Score.';
+      return;
+    }
+    const t0 = performance.now();
+    const res = analyseSignal(decoded.mono, decoded.sr);
+    const ms = Math.round(performance.now() - t0);
+    const drops = matchEvents(
+      annot.drops,
+      Array.from(res.drops, (d) => d.time),
+      beatTolerance(res.bpm),
+    );
+    const barTol = res.bpm > 0 ? (60 / res.bpm) * 4 : 2;
+    const secs = matchEvents(
+      annot.sections,
+      Array.from(res.sections, (s) => s.start),
+      barTol,
+    );
+    const trueBpm = Number(($('trueBpm') as HTMLInputElement).value);
+    const tempo = trueBpm > 0 ? scoreTempo(res.bpm, trueBpm) : null;
+    const pct = (x: number): string => `${Math.round(x * 100)}%`;
+    const tempoNote = tempo ? (tempo.within4pct ? ' ✓' : tempo.octaveError ? ' (octave)' : ' ✗') : '';
+    annotOut.textContent =
+      `BPM ${res.bpm.toFixed(1)}${tempoNote} · ` +
+      `drops ${drops.hits}/${drops.refCount} hit, ${drops.falsePositives} false ` +
+      `(recall ${pct(drops.recall)}, prec ${pct(drops.precision)}) · ` +
+      `sections recall ${pct(secs.recall)} · analysed in ${ms} ms`;
+  });
+  window.addEventListener('keydown', (e) => {
+    if (!annot.on || inputTag(e)) return;
+    const k = e.key.toLowerCase();
+    if (k === 'd') mark('drop');
+    else if (k === 's') mark('section');
+  });
 }
 
 buildCovers();

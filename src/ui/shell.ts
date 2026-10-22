@@ -481,6 +481,8 @@ export class Shell {
       });
       app.queueHooks = { ended: () => lib.onQueueEnded(), external: () => lib.onExternalPlay() };
       lib.subscribePlayback(() => this.renderTransport());
+      // Feed the playing track's analysis to the stage script (null until it's analysed).
+      lib.nowPlayingAnalysis.subscribe((a) => app.setAnalysis(a));
       const { mountLibrary } = await import('../library/mount');
       mountLibrary(byId('library-root'));
       this.renderTransport();

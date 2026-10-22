@@ -6,6 +6,8 @@ import { AiMood, type AiMoodResult } from './ai/aimood';
 import { FeatureExtractor } from './analysis/features';
 import { DimensionDirector } from './analysis/ladder';
 import { MoodReader } from './analysis/mood';
+import { DROP_DIM, MIN_CONFIDENCE, ScriptDirector } from './analysis/script';
+import type { TrackAnalysis } from './library/types';
 import { SyncDelay, autoDelay, MAX_DELAY_MS } from './analysis/sync';
 import { DIMS } from './config/dims';
 import { MOODS, moodLook } from './config/moods';
@@ -122,6 +124,12 @@ export class App {
   readonly cover = new CoverArt();
   readonly lyrics = new LyricsCaption();
   readonly stats = { beats: 0, strong: 0, snares: 0, intensity: 0 };
+  /** Plays the stage from the track's analysis — builds tension, cuts to Static Bloom on the drop. */
+  readonly script = new ScriptDirector();
+  /** The playing track's analysis (pushed by the library controller); null for live/unanalysed. */
+  private analysis: TrackAnalysis | null = null;
+  /** Count-in lettering the script wants on the giant word this frame (e.g. "3", "WAIT FOR IT"). */
+  private scriptWord: string | null = null;
   /** The on-device mood model (lazy worker; silent fallback to the quick read). */
   readonly ai: AiMood;
   /** The latest AI read, for the tuning readout. */
@@ -320,6 +328,11 @@ export class App {
     this.features.newSong();
     this.stats.beats = this.stats.strong = this.stats.snares = 0;
     this.mood.reset(key);
+    // The script only engages once the library pushes this song's analysis; start reactive.
+    this.script.newSong(key);
+    this.analysis = null;
+    this.scriptWord = null;
+    this.stage.tension = 0;
     // Back to the listening globe with fresh, seeded layouts until the mood is read.
     this.stage.director.setSong(this.stage.tracker.reset(key), t);
     this.set({ mood: null, bpm: 0, aiActive: false });
@@ -367,6 +380,11 @@ export class App {
   /** Apply a loudness trim mid-play (smoothed), e.g. when a measurement arrives. */
   setPlaybackGain(db: number): void {
     this.playback?.setGainDb(db);
+  }
+
+  /** The library controller pushes the playing track's analysis (or null) so the script can run. */
+  setAnalysis(a: TrackAnalysis | null): void {
+    this.analysis = a;
   }
 
   /** Files from the picker or a drop: one audio file, optionally with its .lrc. */
@@ -651,6 +669,18 @@ export class App {
     return -1;
   }
 
+  /**
+   * Latency-compensated song position for the script clock: the sound at the deck's `currentTime`
+   * reaches the ears ~outputLatency later, so advancing the clock by it lands the scripted drop cut
+   * on the beat the listener actually hears. -1 when there's no file timeline.
+   */
+  private scriptPos(): number {
+    if (this.state.source !== 'file' || !this.playback) return -1;
+    const ctx = this.audio.ctx;
+    const latency = ctx ? ctx.outputLatency || ctx.baseLatency || 0 : 0;
+    return this.playback.currentTime + latency;
+  }
+
   // ---------------------------------------------------------------- settings and dimensions
 
   pickDim(i: number): void {
@@ -747,12 +777,7 @@ export class App {
     }
     this.stats.intensity = lf.intensity;
     if (s.screen === 'live') this.onMood(lf, dt, t);
-    this.director.update(lf, t, dt, {
-      playing: s.playing,
-      live: s.screen === 'live',
-      auto: s.auto,
-      moodTh: moodLook(s.mood).th,
-    });
+    this.drive(lf, t, dt, s);
 
     const delay = this.syncDelay();
     const a = this.sync.apply(live, t, delay);
@@ -806,6 +831,43 @@ export class App {
     this.onFrame?.(a);
   }
 
+  /**
+   * Choose the dimension ladder for this frame: the script when the playing file has confident
+   * analysis and AUTO is on (it holds through a build and hard-cuts to Static Bloom on the drop),
+   * otherwise the reactive ladder. Live inputs, unanalysed tracks and a locked dimension all keep
+   * today's reactive behaviour exactly.
+   */
+  private drive(lf: Features, t: number, dt: number, s: AppState): void {
+    const scriptOn =
+      s.auto &&
+      s.playing &&
+      s.screen === 'live' &&
+      s.source === 'file' &&
+      !!this.analysis &&
+      this.analysis.beatConfidence >= MIN_CONFIDENCE;
+    const pos = scriptOn ? this.scriptPos() : -1;
+    if (scriptOn && pos >= 0) {
+      const fr = this.script.update(this.analysis, pos, dt, this.director.now);
+      this.stage.tension = fr.tension;
+      this.scriptWord = fr.countIn;
+      if (fr.cut) {
+        this.director.reset(DROP_DIM, t); // hard jump to Static Bloom, no wipe
+        this.stage.dropCut(t, s.strict, s.reduce);
+      } else if (fr.targetDim !== this.director.now && !this.director.wipe && this.director.pending === null) {
+        this.director.pick(fr.targetDim, t); // wipe toward the section's dimension
+      }
+      return;
+    }
+    this.stage.tension = 0;
+    this.scriptWord = null;
+    this.director.update(lf, t, dt, {
+      playing: s.playing,
+      live: s.screen === 'live',
+      auto: s.auto,
+      moodTh: moodLook(s.mood).th,
+    });
+  }
+
   private onMood(f: Features, dt: number, t: number): void {
     const dec = this.mood.observe(f, dt, t, this.features.spectrum);
     if (!dec) return;
@@ -852,6 +914,7 @@ export class App {
   }
 
   private giantWord(s: AppState): string {
+    if (this.scriptWord) return this.scriptWord; // scripted count-in on the last build bar
     if (s.source && s.mood) return MOODS[s.mood].label;
     return DIMS[this.director.now].name.toUpperCase();
   }

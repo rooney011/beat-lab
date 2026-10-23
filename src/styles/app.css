@@ -709,10 +709,23 @@ input:focus-visible,
 /* ---------- clip recorder (Phase 3) ---------- */
 .np__clip {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-top: 10px;
+}
+/* Keep Record / Clip drop / Audio on one line — compact controls, let labels ellipsize if tight. */
+.np__clip .btn {
+  padding: 0 10px;
+  min-height: 38px;
+  white-space: nowrap;
+}
+.np__clip .switch {
+  min-height: 38px;
+  margin-left: auto;
+}
+.np__clip .switch .label {
+  white-space: nowrap;
 }
 .clip {
   position: absolute;

@@ -204,6 +204,21 @@ export class Crew {
       p.lL = [-0.12, 0.1];
       p.lR = [0.12, -0.1];
     }
+    // Baseline groove so the crew is always moving, not just in the instant after a beat — the main
+    // fix for figures that looked frozen between sparse beats or before the mood is read. Off in calm
+    // mode, which must stay low-motion; dialled back for styles that already move a lot.
+    if (style !== 'calm') {
+      const g = amp * (style === 'hype' || style === 'grit' ? 0.5 : 1);
+      const bounce = 0.5 - 0.5 * Math.cos(2 * Math.PI * fr); // 0 on the beat → 1 mid-beat → 0
+      const shift2 = Math.sin(Math.PI * (n + fr)); // slow weight shift every two beats
+      p.dip += bounce * 0.035 * g;
+      p.nod += bounce * 0.12 * g;
+      p.lean += 0.03 * shift2 * g;
+      p.shift += 0.02 * shift2 * g;
+      const wob = 0.22 * s2 * g;
+      p.aL = [p.aL[0] - wob * 0.4, p.aL[1] - wob];
+      p.aR = [p.aR[0] + wob * 0.4, p.aR[1] + wob];
+    }
     if (!p.jump) {
       p.lL = [p.lL[0] - p.dip * 3, p.lL[1] + p.dip * 2];
       p.lR = [p.lR[0] + p.dip * 3, p.lR[1] - p.dip * 2];
@@ -216,7 +231,7 @@ export class Crew {
     const list = this.crewFor(opts.songKey);
     const slots = mob ? [0.16, 0.84, 0.5] : [0.13, 0.87, 0.26, 0.75, 0.05, 0.95];
     const style: DanceStyle = calm ? 'calm' : (opts.mood ?? 'none');
-    const amp = (opts.playing ? 1 : 0.35) * (0.6 + 0.4 * dose) * (0.85 + 0.3 * f.pulse);
+    const amp = (opts.playing ? 1 : 0.4) * (0.72 + 0.28 * dose) * (0.9 + 0.25 * f.pulse);
     // Feet ride a smoothed copy of the string.
     const ws = this.waveS;
     const w = dc.a.wave;
